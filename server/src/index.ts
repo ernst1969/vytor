@@ -1,5 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 import cors from "cors";
 import "dotenv/config";
 import express from "express";
@@ -27,11 +28,17 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/users", async (req, res) => {
   try {
-    const { username } = req.body;
+    const { username, password } = req.body;
 
     if (!username || typeof username !== "string") {
       return res.status(400).json({
         error: "Username is required",
+      });
+    }
+
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({
+        error: "Password is required",
       });
     }
 
@@ -40,6 +47,12 @@ app.post("/api/users", async (req, res) => {
     if (trimmedUsername.length < 2) {
       return res.status(400).json({
         error: "Username must be at least 2 characters",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        error: "Password must be at least 8 characters",
       });
     }
 
@@ -55,9 +68,12 @@ app.post("/api/users", async (req, res) => {
       });
     }
 
+    const passwordHash = await bcrypt.hash(password, 12);
+
     const user = await prisma.user.create({
       data: {
         username: trimmedUsername,
+        passwordHash,
       },
     });
 
@@ -70,6 +86,60 @@ app.post("/api/users", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to create user",
+    });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || typeof username !== "string") {
+      return res.status(400).json({
+        error: "Username is required",
+      });
+    }
+
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({
+        error: "Password is required",
+      });
+    }
+
+    const trimmedUsername = username.trim();
+
+    const user = await prisma.user.findUnique({
+      where: {
+        username: trimmedUsername,
+      },
+    });
+
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({
+        error: "Invalid username or password",
+      });
+    }
+
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user.passwordHash
+    );
+
+    if (!passwordMatches) {
+      return res.status(401).json({
+        error: "Invalid username or password",
+      });
+    }
+
+    res.json({
+      id: user.id,
+      username: user.username,
+    });
+  } catch (error) {
+    console.error("Failed to log in:", error);
+
+    res.status(500).json({
+      error: "Failed to log in",
     });
   }
 });

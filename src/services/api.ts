@@ -10,7 +10,10 @@ export async function checkBackend() {
   return response.json();
 }
 
-export async function createUser(username: string) {
+export async function createUser(
+  username: string,
+  password: string
+) {
   const response = await fetch(`${API_URL}/api/users`, {
     method: "POST",
     headers: {
@@ -18,6 +21,31 @@ export async function createUser(username: string) {
     },
     body: JSON.stringify({
       username,
+      password,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || `Backend returned ${response.status}`);
+  }
+
+  return data;
+}
+
+export async function loginUser(
+  username: string,
+  password: string
+) {
+  const response = await fetch(`${API_URL}/api/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      username,
+      password,
     }),
   });
 

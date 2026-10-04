@@ -11,24 +11,31 @@ import {
     View,
 } from "react-native";
 
-
 import { Colors } from "@/constants/theme";
-import { createUser } from "@/services/api";
+import { loginUser } from "@/services/api";
 
-export default function CreateUserScreen() {
+export default function LoginScreen() {
   const router = useRouter();
-  const [password, setPassword] = useState("");
 
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleCreateUser() {
+  async function handleLogin() {
     const trimmedUsername = username.trim();
 
     if (trimmedUsername.length < 2) {
       Alert.alert(
-        "Username too short",
-        "Your username needs to be at least 2 characters."
+        "Invalid username",
+        "Please enter your username."
+      );
+      return;
+    }
+
+    if (password.length < 8) {
+      Alert.alert(
+        "Invalid password",
+        "Please enter your password."
       );
       return;
     }
@@ -36,14 +43,20 @@ export default function CreateUserScreen() {
     try {
       setLoading(true);
 
-const user = await createUser(trimmedUsername, password);
+      const user = await loginUser(
+        trimmedUsername,
+        password
+      );
 
-      await AsyncStorage.setItem("vytor_user_id", String(user.id));
+      await AsyncStorage.setItem(
+        "vytor_user_id",
+        String(user.id)
+      );
 
       router.replace("/(tabs)");
     } catch (error) {
       Alert.alert(
-        "Could not create user",
+        "Could not log in",
         error instanceof Error
           ? error.message
           : "Something went wrong."
@@ -55,16 +68,16 @@ const user = await createUser(trimmedUsername, password);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome to Vytor</Text>
+      <Text style={styles.title}>Welcome Back</Text>
 
       <Text style={styles.subtitle}>
-        Let's get you set up before your first workout.
+        Log in to continue your Vytor journey.
       </Text>
 
       <TextInput
         value={username}
         onChangeText={setUsername}
-        placeholder="Choose a username"
+        placeholder="Username"
         placeholderTextColor={Colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
@@ -74,19 +87,19 @@ const user = await createUser(trimmedUsername, password);
       />
 
       <TextInput
-  value={password}
-  onChangeText={setPassword}
-  placeholder="Password"
-  placeholderTextColor={Colors.textMuted}
-  secureTextEntry
-  autoCapitalize="none"
-  autoCorrect={false}
-  style={styles.input}
-  editable={!loading}
-/>
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Password"
+        placeholderTextColor={Colors.textMuted}
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={styles.input}
+        editable={!loading}
+      />
 
       <Pressable
-        onPress={handleCreateUser}
+        onPress={handleLogin}
         disabled={loading}
         style={({ pressed }) => [
           styles.button,
@@ -97,19 +110,19 @@ const user = await createUser(trimmedUsername, password);
         {loading ? (
           <ActivityIndicator color={Colors.background} />
         ) : (
-          <Text style={styles.buttonText}>Create User</Text>
+          <Text style={styles.buttonText}>Log In</Text>
         )}
       </Pressable>
 
       <Pressable
-  onPress={() => router.replace("/login")}
-  disabled={loading}
-  style={styles.secondaryButton}
->
-  <Text style={styles.secondaryText}>
-    Already have an account? Log in
-  </Text>
-</Pressable>
+        onPress={() => router.replace("/create-user")}
+        disabled={loading}
+        style={styles.secondaryButton}
+      >
+        <Text style={styles.secondaryText}>
+          Don't have an account? Create one
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -128,16 +141,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: Colors.text,
   },
-
-  secondaryButton: {
-  alignItems: "center",
-  marginTop: 24,
-},
-
-secondaryText: {
-  fontSize: 15,
-  color: Colors.textMuted,
-},
 
   subtitle: {
     fontSize: 17,
@@ -177,5 +180,15 @@ secondaryText: {
     fontSize: 17,
     fontWeight: "bold",
     color: Colors.background,
+  },
+
+  secondaryButton: {
+    alignItems: "center",
+    marginTop: 24,
+  },
+
+  secondaryText: {
+    fontSize: 15,
+    color: Colors.textMuted,
   },
 });
