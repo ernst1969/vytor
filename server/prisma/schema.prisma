@@ -13,6 +13,9 @@ model User {
   createdAt    DateTime  @default(now())
 
   workouts     Workout[]
+
+  sentFriendRequests     FriendRequest[] @relation("sentFriendRequests")
+  receivedFriendRequests FriendRequest[] @relation("receivedFriendRequests")
 }
 
 model Exercise {
@@ -87,4 +90,26 @@ model WorkoutSet {
 
   @@unique([workoutExerciseId, setNumber])
   @@index([workoutExerciseId])
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model FriendRequest {
+  id          Int                 @id @default(autoincrement())
+  requesterId Int
+  recipientId Int
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  requester User @relation("sentFriendRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipient User @relation("receivedFriendRequests", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, recipientId])
+  @@index([requesterId, status])
+  @@index([recipientId, status])
 }

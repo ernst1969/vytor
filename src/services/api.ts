@@ -223,3 +223,173 @@ export async function getLastExerciseWorkout(
 
   return data;
 }
+
+export async function searchUsers(
+  query: string,
+  userId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/users/search?query=${encodeURIComponent(
+      query,
+    )}&userId=${userId}`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function getFriends(userId: number) {
+  const response = await fetch(
+    `${API_URL}/api/friends/${userId}`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function getFriendRequests(userId: number) {
+  const response = await fetch(
+    `${API_URL}/api/friends/${userId}/requests`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function sendFriendRequest(
+  requesterId: number,
+  recipientId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/friends/request`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requesterId,
+        recipientId,
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function acceptFriendRequest(
+  requestId: number,
+  userId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/friends/requests/${requestId}/accept`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId,
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function rejectFriendRequest(
+  requestId: number,
+  userId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/friends/requests/${requestId}/reject`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId,
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function getFriendsFeed(userId: number) {
+  const response = await fetch(
+    `${API_URL}/api/friends/${userId}/feed`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function getPublicUser(userId: number) {
+  const response = await fetch(
+    `${API_URL}/api/users/${userId}/public`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}

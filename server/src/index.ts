@@ -153,6 +153,97 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+
+// --------------------------------------------------
+// Friends
+// --------------------------------------------------
+
+app.get("/api/users/search", async (req, res) => {
+  try {
+    const query =
+      typeof req.query.query === "string"
+        ? req.query.query.trim()
+        : "";
+
+    const currentUserId = Number(req.query.userId);
+
+    if (!Number.isInteger(currentUserId)) {
+      return res.status(400).json({
+        error: "Valid userId is required",
+      });
+    }
+
+    if (!query) {
+      return res.json([]);
+    }
+
+    const users = await prisma.user.findMany({
+      where: {
+        id: {
+          not: currentUserId,
+        },
+        username: {
+          contains: query,
+          mode: "insensitive",
+        },
+      },
+      orderBy: {
+        username: "asc",
+      },
+      take: 20,
+      select: {
+        id: true,
+        username: true,
+      },
+    });
+
+    res.json(users);
+  } catch (error) {
+    console.error("Failed to search users:", error);
+
+    res.status(500).json({
+      error: "Failed to search users",
+    });
+  }
+});
+
+app.get("/api/users/:id/public", async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId)) {
+      return res.status(400).json({
+        error: "Invalid user ID",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+      select: {
+        id: true,
+        username: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error("Failed to load public user:", error);
+
+    res.status(500).json({
+      error: "Failed to load user",
+    });
+  }
+});
+
 app.get("/api/users/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -184,6 +275,399 @@ app.get("/api/users/:id", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to get user",
+    });
+  }
+});
+
+app.get("/api/friends/:userId", async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+
+    if (!Number.isInteger(userId)) {
+      return res.status(400).json({
+        error: "Invalid user ID",
+      });
+    }
+
+    const requests = await prisma.friendRequest.findMany({
+      where: {
+        status: "ACCEPTED",
+        OR: [
+          { requesterId: userId },
+          { recipientId: userId },
+        ],
+      },
+      include: {
+        requester: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+        recipient: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    const friends = requests.map((request) =>
+      request.requesterId === userId
+        ? request.recipient
+        : request.requester,
+    );
+
+    res.json(friends);
+  } catch (error) {
+    console.error("Failed to load friends:", error);
+
+    res.status(500).json({
+      error: "Failed to load friends",
+    });
+  }
+});
+
+app.get("/api/friends/:userId/requests", async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+
+    if (!Number.isInteger(userId)) {
+      return res.status(400).json({
+        error: "Invalid user ID",
+      });
+    }
+
+    const requests = await prisma.friendRequest.findMany({
+      where: {
+        recipientId: userId,
+        status: "PENDING",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        requester: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    res.json(
+      requests.map((request) => ({
+        id: request.id,
+        user: request.requester,
+        createdAt: request.createdAt,
+      })),
+    );
+  } catch (error) {
+    console.error("Failed to load friend requests:", error);
+
+    res.status(500).json({
+      error: "Failed to load friend requests",
+    });
+  }
+});
+
+app.post("/api/friends/request", async (req, res) => {
+  try {
+    const requesterId = Number(req.body.requesterId);
+    const recipientId = Number(req.body.recipientId);
+
+    if (
+      !Number.isInteger(requesterId) ||
+      !Number.isInteger(recipientId)
+    ) {
+      return res.status(400).json({
+        error: "Valid requesterId and recipientId are required",
+      });
+    }
+
+    if (requesterId === recipientId) {
+      return res.status(400).json({
+        error: "You cannot add yourself as a friend",
+      });
+    }
+
+    const [requester, recipient] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: requesterId },
+      }),
+      prisma.user.findUnique({
+        where: { id: recipientId },
+      }),
+    ]);
+
+    if (!requester || !recipient) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    const existing = await prisma.friendRequest.findFirst({
+      where: {
+        OR: [
+          {
+            requesterId,
+            recipientId,
+          },
+          {
+            requesterId: recipientId,
+            recipientId: requesterId,
+          },
+        ],
+      },
+    });
+
+    if (existing) {
+      if (existing.status === "ACCEPTED") {
+        return res.status(409).json({
+          error: "You are already friends",
+        });
+      }
+
+      if (
+        existing.status === "PENDING" &&
+        existing.requesterId === requesterId
+      ) {
+        return res.status(409).json({
+          error: "Friend request already sent",
+        });
+      }
+
+      if (
+        existing.status === "PENDING" &&
+        existing.requesterId === recipientId
+      ) {
+        return res.status(409).json({
+          error: "This user has already sent you a friend request",
+        });
+      }
+
+      await prisma.friendRequest.update({
+        where: {
+          id: existing.id,
+        },
+        data: {
+          requesterId,
+          recipientId,
+          status: "PENDING",
+        },
+      });
+
+      return res.json({
+        success: true,
+      });
+    }
+
+    const request = await prisma.friendRequest.create({
+      data: {
+        requesterId,
+        recipientId,
+        status: "PENDING",
+      },
+    });
+
+    res.status(201).json(request);
+  } catch (error) {
+    console.error("Failed to send friend request:", error);
+
+    res.status(500).json({
+      error: "Failed to send friend request",
+    });
+  }
+});
+
+app.post("/api/friends/requests/:id/accept", async (req, res) => {
+  try {
+    const requestId = Number(req.params.id);
+    const userId = Number(req.body.userId);
+
+    if (
+      !Number.isInteger(requestId) ||
+      !Number.isInteger(userId)
+    ) {
+      return res.status(400).json({
+        error: "Invalid request ID or user ID",
+      });
+    }
+
+    const request = await prisma.friendRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+    });
+
+    if (!request) {
+      return res.status(404).json({
+        error: "Friend request not found",
+      });
+    }
+
+    if (request.recipientId !== userId) {
+      return res.status(403).json({
+        error: "You cannot accept this request",
+      });
+    }
+
+    if (request.status !== "PENDING") {
+      return res.status(400).json({
+        error: "This request is no longer pending",
+      });
+    }
+
+    const updated = await prisma.friendRequest.update({
+      where: {
+        id: requestId,
+      },
+      data: {
+        status: "ACCEPTED",
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error("Failed to accept friend request:", error);
+
+    res.status(500).json({
+      error: "Failed to accept friend request",
+    });
+  }
+});
+
+app.post("/api/friends/requests/:id/reject", async (req, res) => {
+  try {
+    const requestId = Number(req.params.id);
+    const userId = Number(req.body.userId);
+
+    if (
+      !Number.isInteger(requestId) ||
+      !Number.isInteger(userId)
+    ) {
+      return res.status(400).json({
+        error: "Invalid request ID or user ID",
+      });
+    }
+
+    const request = await prisma.friendRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+    });
+
+    if (!request) {
+      return res.status(404).json({
+        error: "Friend request not found",
+      });
+    }
+
+    if (request.recipientId !== userId) {
+      return res.status(403).json({
+        error: "You cannot reject this request",
+      });
+    }
+
+    await prisma.friendRequest.update({
+      where: {
+        id: requestId,
+      },
+      data: {
+        status: "REJECTED",
+      },
+    });
+
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("Failed to reject friend request:", error);
+
+    res.status(500).json({
+      error: "Failed to reject friend request",
+    });
+  }
+});
+
+app.get("/api/friends/:userId/feed", async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+
+    if (!Number.isInteger(userId)) {
+      return res.status(400).json({
+        error: "Invalid user ID",
+      });
+    }
+
+    const friendships = await prisma.friendRequest.findMany({
+      where: {
+        status: "ACCEPTED",
+        OR: [
+          { requesterId: userId },
+          { recipientId: userId },
+        ],
+      },
+    });
+
+    const friendIds = friendships.map((friendship) =>
+      friendship.requesterId === userId
+        ? friendship.recipientId
+        : friendship.requesterId,
+    );
+
+    if (friendIds.length === 0) {
+      return res.json([]);
+    }
+
+    const sevenDaysAgo = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    );
+
+    const workouts = await prisma.workout.findMany({
+      where: {
+        userId: {
+          in: friendIds,
+        },
+        endedAt: {
+          gte: sevenDaysAgo,
+        },
+      },
+      orderBy: {
+        endedAt: "desc",
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+        template: true,
+        exercises: {
+          orderBy: {
+            order: "asc",
+          },
+          include: {
+            exercise: true,
+            sets: {
+              orderBy: {
+                setNumber: "asc",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    res.json(workouts);
+  } catch (error) {
+    console.error("Failed to load friends feed:", error);
+
+    res.status(500).json({
+      error: "Failed to load friends feed",
     });
   }
 });
