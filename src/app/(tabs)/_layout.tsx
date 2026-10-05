@@ -1,66 +1,136 @@
 import { Tabs, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
 import { useWorkout } from "@/context/workout-context";
 
 function WorkoutHeader() {
-  const { startedAt, finishWorkout } = useWorkout();
+  const {
+    startedAt,
+    finishWorkout,
+    restEndsAt,
+  } = useWorkout();
+
   const segments = useSegments();
   const insets = useSafeAreaInsets();
 
-  // null means the timer has not received its first timestamp yet.
   const [now, setNow] = useState<number | null>(null);
+  const [isFinishing, setIsFinishing] = useState(false);
 
-  // The Home tab is the only place where the Finish button is shown.
   const isHomeTab =
     segments.length === 1 && segments[0] === "(tabs)";
 
   useEffect(() => {
     if (!startedAt) {
-      // Reset the timer when the workout ends.
       setNow(null);
       return;
     }
 
-    // Set the current time immediately so the timer starts at 00:00:00.
     setNow(Date.now());
 
-    // Keep the timer updating once per second.
     const interval = setInterval(() => {
       setNow(Date.now());
-    }, 1000);
+    }, 250);
 
     return () => clearInterval(interval);
-  }, [startedAt]);
+  }, [startedAt, restEndsAt]);
+
+  async function handleFinishWorkout() {
+    if (isFinishing) return;
+
+    try {
+      setIsFinishing(true);
+      console.log("Finish button pressed");
+      await finishWorkout();
+      console.log("Workout finished successfully");
+    } catch (error) {
+      console.error(
+        "Failed to finish workout:",
+        error,
+      );
+
+      Alert.alert(
+        "Could not finish workout",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while saving your workout.",
+      );
+    } finally {
+      setIsFinishing(false);
+    }
+  }
 
   if (!startedAt || now === null) {
     return null;
   }
 
-  // Prevent the timer from ever displaying a negative value.
-  const elapsedSeconds = Math.max(
-    0,
-    Math.floor((now - startedAt) / 1000),
-  );
+  const isResting =
+    restEndsAt !== null &&
+    restEndsAt > now;
 
-  const hours = Math.floor(elapsedSeconds / 3600);
-  const minutes = Math.floor((elapsedSeconds % 3600) / 60);
-  const seconds = elapsedSeconds % 60;
+  let timer: string;
 
-  // Format the timer as HH:MM:SS.
-  const timer = [hours, minutes, seconds]
-    .map((value) => String(value).padStart(2, "0"))
-    .join(":");
+  if (isResting) {
+    const remainingSeconds = Math.max(
+      0,
+      Math.ceil(
+        (restEndsAt - now) / 1000,
+      ),
+    );
+
+    const minutes = Math.floor(
+      remainingSeconds / 60,
+    );
+
+    const seconds =
+      remainingSeconds % 60;
+
+    timer = `${String(minutes).padStart(
+      2,
+      "0",
+    )}:${String(seconds).padStart(
+      2,
+      "0",
+    )}`;
+  } else {
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor(
+        (now - startedAt) / 1000,
+      ),
+    );
+
+    const hours = Math.floor(
+      elapsedSeconds / 3600,
+    );
+
+    const minutes = Math.floor(
+      (elapsedSeconds % 3600) / 60,
+    );
+
+    const seconds =
+      elapsedSeconds % 60;
+
+    timer = [hours, minutes, seconds]
+      .map((value) =>
+        String(value).padStart(2, "0"),
+      )
+      .join(":");
+  }
 
   return (
     <View
       style={[
         styles.workoutHeader,
         {
-          // Reserve space for Android's status bar / display cutout.
           paddingTop: insets.top,
           height: 64 + insets.top,
         },
@@ -68,16 +138,33 @@ function WorkoutHeader() {
     >
       <View style={styles.headerSide} />
 
-      <Text style={styles.timer}>{timer}</Text>
+      <View style={styles.timerContainer}>
+        <Text style={styles.timerLabel}>
+          {isResting ? "REST" : "WORKOUT"}
+        </Text>
+
+        <Text style={styles.timer}>
+          {timer}
+        </Text>
+      </View>
 
       <View style={styles.headerSide}>
         {isHomeTab && (
           <Pressable
             style={styles.finishButton}
-            onPress={finishWorkout}
+            onPress={handleFinishWorkout}
+            disabled={isFinishing}
             hitSlop={12}
           >
-            <Text style={styles.checkmark}>✓</Text>
+            <Text
+              style={[
+                styles.checkmark,
+                isFinishing &&
+                  styles.checkmarkDisabled,
+              ]}
+            >
+              ✓
+            </Text>
           </Pressable>
         )}
       </View>
@@ -98,12 +185,9 @@ export default function TabLayout() {
             backgroundColor: Colors.surface,
             borderTopColor: Colors.border,
             borderTopWidth: 2,
-
-            // Keep the tab bar above Android's system navigation area.
             height: 70 + insets.bottom,
             paddingBottom: insets.bottom,
           },
-
           tabBarActiveTintColor: Colors.text,
           tabBarInactiveTintColor: Colors.textMuted,
           headerShown: false,
@@ -147,6 +231,19 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
+  timerContainer: {
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+timerLabel: {
+  color: Colors.textMuted,
+  fontSize: 9,
+  fontWeight: "800",
+  letterSpacing: 1.5,
+  marginBottom: 1,
+},
+
   workoutHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -165,8 +262,6 @@ const styles = StyleSheet.create({
   timer: {
     color: Colors.text,
     fontSize: 22,
-
-    // Keeps the timer digits aligned as they change.
     fontVariant: ["tabular-nums"],
   },
 
@@ -181,5 +276,9 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     fontSize: 30,
     fontWeight: "600",
+  },
+
+  checkmarkDisabled: {
+    opacity: 0.4,
   },
 });

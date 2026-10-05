@@ -8,9 +8,13 @@ import {
     Text,
     View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
-import { useWorkout, type WorkoutExercise } from "@/context/workout-context";
+import {
+    useWorkout,
+    type WorkoutExercise,
+} from "@/context/workout-context";
 import { getWorkoutTemplates } from "@/services/api";
 
 type TemplateExercise = {
@@ -32,7 +36,10 @@ export default function WorkoutSetupScreen() {
   const router = useRouter();
   const { startWorkout } = useWorkout();
 
-  const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
+  const [templates, setTemplates] = useState<
+    WorkoutTemplate[]
+  >([]);
+
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,123 +51,168 @@ export default function WorkoutSetupScreen() {
       const data = await getWorkoutTemplates();
       setTemplates(data);
     } catch (error) {
-      console.error("Failed to load templates:", error);
+      console.error(
+        "Failed to load workout templates:",
+        error,
+      );
     } finally {
       setLoading(false);
     }
   }
 
-async function startTemplate(template: WorkoutTemplate) {
-  const exercises: WorkoutExercise[] =
-    template.exercises
-      .sort((a, b) => a.order - b.order)
-      .map((item) => ({
-        id: `exercise-${item.exercise.id}-${Date.now()}-${Math.random()}`,
-        exerciseId: item.exercise.id,
-        name: item.exercise.name,
-        sets: [
-          {
-            id: `set-${item.exercise.id}-${Date.now()}-${Math.random()}`,
-            setNumber: 1,
-            weight: "",
-            reps: "",
-          },
-        ],
-      }));
+  async function startTemplate(
+    template: WorkoutTemplate,
+  ) {
+    const exercises: WorkoutExercise[] =
+      template.exercises
+        .sort((a, b) => a.order - b.order)
+        .map((item) => ({
+          id: `exercise-${item.exercise.id}-${Date.now()}-${Math.random()}`,
+          exerciseId: item.exercise.id,
+          name: item.exercise.name,
+          sets: [
+            {
+              id: `set-${item.exercise.id}-${Date.now()}-${Math.random()}`,
+              setNumber: 1,
+              weight: "",
+              reps: "",
+            },
+          ],
+        }));
 
-  try {
-    await startWorkout(exercises, template.id);
-    router.replace("/workout");
-  } catch (error) {
-    console.error("Failed to start workout:", error);
+    try {
+      await startWorkout(
+        exercises,
+        template.id,
+      );
+
+      router.replace("/");
+    } catch (error) {
+      console.error(
+        "Failed to start workout:",
+        error,
+      );
+    }
   }
-}
 
-function startFreestyle() {
-  router.replace("/exercise-picker?mode=freestyle");
-}
+  function startFreestyle() {
+    router.push("/exercise-picker?mode=freestyle");
+  }
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Loading workouts...</Text>
-      </View>
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={["top", "bottom"]}
+      >
+        <View style={styles.center}>
+          <ActivityIndicator size="large" />
+
+          <Text style={styles.loadingText}>
+            Loading workouts...
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top", "bottom"]}
     >
-      <Text style={styles.title}>START WORKOUT</Text>
-
-      <Text style={styles.subtitle}>
-        Choose a template or start from scratch.
-      </Text>
-
-      <Pressable
-        style={styles.freestyleButton}
-        onPress={startFreestyle}
-      >
-        <Text style={styles.freestyleText}>FREESTYLE</Text>
-        <Text style={styles.cardDescription}>
-          Build your workout as you go
-        </Text>
-      </Pressable>
-
-      <Text style={styles.sectionTitle}>TEMPLATES</Text>
-
-      {templates.length === 0 ? (
-        <Text style={styles.emptyText}>
-          No workout templates found.
-        </Text>
-      ) : (
-        templates.map((template) => (
+      <View style={styles.container}>
+        <View style={styles.header}>
           <Pressable
-            key={template.id}
-            style={styles.templateCard}
-            onPress={() => startTemplate(template)}
+            onPress={() => router.back()}
+            style={styles.backButton}
           >
-            <Text style={styles.templateName}>{template.name}</Text>
+            <Text style={styles.backText}>‹</Text>
+          </Pressable>
 
-            <Text style={styles.exerciseCount}>
-              {template.exercises.length} exercises
-            </Text>
+          <Text style={styles.title}>
+            START WORKOUT
+          </Text>
 
-            <View style={styles.exerciseList}>
-              {template.exercises
-                .sort((a, b) => a.order - b.order)
-                .map((item) => (
-                  <Text
-                    key={item.id}
-                    style={styles.exerciseName}
-                  >
-                    • {item.exercise.name}
-                  </Text>
-                ))}
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.content}
+        >
+          <Text style={styles.sectionTitle}>
+            FREESTYLE
+          </Text>
+
+          <Pressable
+            style={styles.freestyleButton}
+            onPress={startFreestyle}
+          >
+            <View>
+              <Text style={styles.cardTitle}>
+                FREESTYLE
+              </Text>
+
+              <Text style={styles.cardSubtitle}>
+                Choose your exercises
+              </Text>
             </View>
 
-            <Text style={styles.startTemplate}>
-              START →
-            </Text>
+            <Text style={styles.arrow}>→</Text>
           </Pressable>
-        ))
-      )}
-    </ScrollView>
+
+          <Text style={styles.sectionTitle}>
+            TEMPLATES
+          </Text>
+
+          {templates.map((template) => (
+            <Pressable
+              key={template.id}
+              style={styles.templateCard}
+              onPress={() =>
+                startTemplate(template)
+              }
+            >
+              <View style={styles.templateInfo}>
+                <Text style={styles.cardTitle}>
+                  {template.name}
+                </Text>
+
+                <Text style={styles.cardSubtitle}>
+                  {template.exercises.length} exercises
+                </Text>
+
+                <Text style={styles.exerciseList}>
+                  {template.exercises
+                    .sort(
+                      (a, b) => a.order - b.order,
+                    )
+                    .map(
+                      (item) =>
+                        item.exercise.name,
+                    )
+                    .join("  •  ")}
+                </Text>
+              </View>
+
+              <Text style={styles.arrow}>→</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: Colors.background,
   },
 
-  content: {
-    padding: 20,
-    paddingBottom: 40,
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
   },
 
   center: {
@@ -175,86 +227,108 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
 
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+
+  backButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  backText: {
+    color: Colors.text,
+    fontSize: 38,
+    lineHeight: 38,
+  },
+
   title: {
-    fontSize: 30,
+    flex: 1,
+    textAlign: "center",
+    fontSize: 21,
     fontWeight: "900",
     letterSpacing: 1,
     color: Colors.text,
-    marginBottom: 8,
   },
 
-  subtitle: {
-    fontSize: 16,
-    color: Colors.textMuted,
-    marginBottom: 28,
+  headerSpacer: {
+    width: 44,
+  },
+
+  content: {
+    paddingHorizontal: 16,
+    paddingBottom: 30,
   },
 
   sectionTitle: {
-    fontSize: 14,
+    marginTop: 14,
+    marginBottom: 10,
+    color: Colors.textMuted,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 1.5,
-    color: Colors.textMuted,
-    marginTop: 30,
-    marginBottom: 12,
   },
 
   freestyleButton: {
-    padding: 20,
-    borderRadius: 8,
-    backgroundColor: Colors.surface,
-    borderWidth: 2,
+    minHeight: 76,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    marginBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
     borderColor: Colors.accent,
-  },
-
-  freestyleText: {
-    fontSize: 20,
-    fontWeight: "900",
-    color: Colors.accent,
-    letterSpacing: 1,
-    marginBottom: 6,
+    borderRadius: 7,
+    backgroundColor: Colors.surface,
   },
 
   templateCard: {
-    padding: 20,
-    marginBottom: 14,
-    borderRadius: 8,
-    backgroundColor: Colors.surface,
+    minHeight: 92,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderWidth: 1,
     borderColor: Colors.border,
+    borderRadius: 7,
+    backgroundColor: Colors.surface,
   },
 
-  templateName: {
-    fontSize: 21,
-    fontWeight: "800",
+  templateInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  cardTitle: {
     color: Colors.text,
+    fontSize: 18,
+    fontWeight: "800",
   },
 
-  exerciseCount: {
-    marginTop: 5,
-    fontSize: 13,
+  cardSubtitle: {
+    marginTop: 3,
     color: Colors.textMuted,
+    fontSize: 13,
   },
 
   exerciseList: {
-    marginTop: 14,
-    gap: 5,
-  },
-
-  exerciseName: {
-    fontSize: 15,
+    marginTop: 8,
     color: Colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
   },
 
-  startTemplate: {
-    marginTop: 18,
-    fontSize: 15,
-    fontWeight: "900",
+  arrow: {
     color: Colors.accent,
-    letterSpacing: 1,
-  },
-
-  emptyText: {
-    color: Colors.textMuted,
-    fontSize: 16,
+    fontSize: 27,
+    fontWeight: "600",
   },
 });

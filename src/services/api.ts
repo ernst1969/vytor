@@ -156,3 +156,70 @@ export async function finishWorkout(
 
   return data;
 }
+
+export async function addExerciseToWorkout(
+  workoutId: number,
+  exerciseId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/workouts/${workoutId}/exercises`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        exerciseId,
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function getWorkoutHistory(
+  userId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/workouts/${userId}`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function getLastExerciseWorkout(
+  exerciseId: number,
+  userId: number,
+) {
+  const response = await fetch(
+    `${API_URL}/api/exercises/${exerciseId}/last-workout?userId=${userId}`,
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
