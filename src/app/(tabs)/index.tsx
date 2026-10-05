@@ -1,7 +1,5 @@
 import { useRouter } from "expo-router";
-
 import { useEffect, useRef, useState } from "react";
-
 import {
   Dimensions,
   Pressable,
@@ -10,10 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-
-import {
-  KeyboardAwareScrollView,
-} from "react-native-keyboard-aware-scroll-view";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
 import { Colors } from "@/constants/theme";
 import { useWorkout } from "@/context/workout-context";
@@ -30,12 +25,18 @@ export default function HomeScreen() {
     addSet,
     updateSet,
     completeSet,
+    updateWeightUnit,
+    updateDistanceUnit,
+    deleteExercise,
+    moveExercise,
   } = useWorkout();
 
   const router = useRouter();
 
-  const [backendStatus, setBackendStatus] =
-    useState("Checking...");
+  const [backendStatus, setBackendStatus] = useState("Checking...");
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
+    null,
+  );
 
   const scrollViewRef =
     useRef<KeyboardAwareScrollView | null>(null);
@@ -49,65 +50,36 @@ export default function HomeScreen() {
   useEffect(() => {
     checkBackend()
       .then(() => setBackendStatus("Connected"))
-      .catch(() =>
-        setBackendStatus("Disconnected"),
-      );
+      .catch(() => setBackendStatus("Disconnected"));
   }, []);
 
-  function handleExerciseLayout(
-    exerciseId: string,
-    y: number,
-  ) {
-    exercisePositions.current[exerciseId] = {
-      y,
-    };
+  function handleExerciseLayout(exerciseId: string, y: number) {
+    exercisePositions.current[exerciseId] = { y };
   }
 
-  function handleSetLayout(
-    setId: string,
-    y: number,
-  ) {
-    setPositions.current[setId] = {
-      y,
-    };
+  function handleSetLayout(setId: string, y: number) {
+    setPositions.current[setId] = { y };
   }
 
-  function scrollToSet(
-    exerciseId: string,
-    setId: string,
-  ) {
+  function scrollToSet(exerciseId: string, setId: string) {
     setTimeout(() => {
       const exercisePosition =
-        exercisePositions.current[
-          exerciseId
-        ];
+        exercisePositions.current[exerciseId];
 
-      const setPosition =
-        setPositions.current[setId];
+      const setPosition = setPositions.current[setId];
 
-      if (
-        !exercisePosition ||
-        !setPosition
-      ) {
+      if (!exercisePosition || !setPosition) {
         return;
       }
 
-      const screenHeight =
-        Dimensions.get("window").height;
-
+      const screenHeight = Dimensions.get("window").height;
       const keyboardHeight = 300;
-
-      const visibleHeight =
-        screenHeight - keyboardHeight;
-
-      const targetCenter =
-        visibleHeight / 2;
-
+      const visibleHeight = screenHeight - keyboardHeight;
+      const targetCenter = visibleHeight / 2;
       const setHeight = 46;
 
       const setY =
-        exercisePosition.y +
-        setPosition.y;
+        exercisePosition.y + setPosition.y;
 
       const targetY =
         setY -
@@ -122,14 +94,98 @@ export default function HomeScreen() {
     }, 150);
   }
 
+  function toggleExerciseMenu(exerciseId: string) {
+    setSelectedExerciseId((current) =>
+      current === exerciseId ? null : exerciseId,
+    );
+  }
+
+  function closeExerciseMenu() {
+    setSelectedExerciseId(null);
+  }
+
+  function changeWeightUnit(exerciseId: string) {
+    const exercise = exercises.find(
+      (item) => item.id === exerciseId,
+    );
+
+    if (!exercise) {
+      return;
+    }
+
+    updateWeightUnit(
+      exerciseId,
+      exercise.weightUnit === "KG" ? "LBS" : "KG",
+    );
+
+    closeExerciseMenu();
+  }
+
+  function changeDistanceUnit(exerciseId: string) {
+    const exercise = exercises.find(
+      (item) => item.id === exerciseId,
+    );
+
+    if (!exercise) {
+      return;
+    }
+
+    updateDistanceUnit(
+      exerciseId,
+      exercise.distanceUnit === "KM" ? "MI" : "KM",
+    );
+
+    closeExerciseMenu();
+  }
+
+  function replaceExercise(exerciseId: string) {
+    closeExerciseMenu();
+
+    router.push({
+      pathname: "/exercise-picker",
+      params: {
+        replaceExerciseId: exerciseId,
+      },
+    });
+  }
+
+  function removeExercise(exerciseId: string) {
+    deleteExercise(exerciseId);
+    closeExerciseMenu();
+  }
+
+  function moveExerciseUp(exerciseId: string) {
+    moveExercise(exerciseId, "up");
+    closeExerciseMenu();
+  }
+
+  function moveExerciseDown(exerciseId: string) {
+    moveExercise(exerciseId, "down");
+    closeExerciseMenu();
+  }
+
+  const selectedExercise = exercises.find(
+    (exercise) => exercise.id === selectedExerciseId,
+  );
+
+  const selectedIndex = selectedExercise
+    ? exercises.findIndex(
+        (exercise) => exercise.id === selectedExercise.id,
+      )
+    : -1;
+
+  const canMoveUp = selectedIndex > 0;
+
+  const canMoveDown =
+    selectedIndex >= 0 &&
+    selectedIndex < exercises.length - 1;
+
   if (isActive) {
     return (
       <View style={styles.container}>
         <KeyboardAwareScrollView
           ref={scrollViewRef}
-          contentContainerStyle={
-            styles.workoutContent
-          }
+          contentContainerStyle={styles.workoutContent}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           enableOnAndroid
@@ -137,8 +193,11 @@ export default function HomeScreen() {
           enableResetScrollToCoords={false}
           showsVerticalScrollIndicator={false}
         >
-          {exercises.map(
-            (exercise, exerciseIndex) => (
+          {exercises.map((exercise) => {
+            const isSelected =
+              selectedExerciseId === exercise.id;
+
+            return (
               <View
                 key={exercise.id}
                 style={styles.exerciseCard}
@@ -149,56 +208,176 @@ export default function HomeScreen() {
                   )
                 }
               >
-                <View style={styles.exerciseHeader}>
-                  <Text style={styles.exerciseName}>
-                    {String(
-                      exerciseIndex + 1,
-                    ).padStart(2, "0")}{" "}
-                    {exercise.name}
-                  </Text>
-
-                  <Pressable
-                    style={styles.exerciseMenuButton}
-                    onPress={() => {
-                      // Placeholder for exercise settings.
-                    }}
-                  >
-                    <Text style={styles.exerciseMenuText}>
-                      ⋮
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <View
-                  style={styles.columnHeader}
+                {/* Entire header is the touch target */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.exerciseHeaderButton,
+                    pressed && styles.exerciseHeaderButtonPressed,
+                  ]}
+                  onPress={() =>
+                    toggleExerciseMenu(exercise.id)
+                  }
+                  hitSlop={6}
                 >
-                  <Text
-                    style={styles.setHeader}
-                  >
+                  <View style={styles.exerciseHeaderContent}>
+                    <Text style={styles.exerciseName}>
+                      {exercise.name}
+                    </Text>
+
+                    <Text style={styles.exerciseMenuHint}>
+                      {isSelected ? "×" : "•••"}
+                    </Text>
+                  </View>
+                </Pressable>
+
+                {isSelected && (
+                  <View style={styles.optionsPanel}>
+                    <View style={styles.optionsHeader}>
+                      <Text style={styles.optionsTitle}>
+                        Exercise options
+                      </Text>
+
+                      <Pressable
+                        style={styles.closeButton}
+                        onPress={closeExerciseMenu}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.closeButtonText}>
+                          ×
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    {(exercise.measurementType === "WEIGHT_REPS" ||
+                      exercise.measurementType ===
+                        "WEIGHT_DISTANCE") && (
+                      <Pressable
+                        style={styles.optionButton}
+                        onPress={() =>
+                          changeWeightUnit(exercise.id)
+                        }
+                      >
+                        <Text style={styles.optionText}>
+                          Change weight unit
+                        </Text>
+
+                        <Text style={styles.optionValue}>
+                          {exercise.weightUnit} →{" "}
+                          {exercise.weightUnit === "KG"
+                            ? "LBS"
+                            : "KG"}
+                        </Text>
+                      </Pressable>
+                    )}
+
+                    {(exercise.measurementType === "DISTANCE_TIME" ||
+                      exercise.measurementType ===
+                        "WEIGHT_DISTANCE") && (
+                      <Pressable
+                        style={styles.optionButton}
+                        onPress={() =>
+                          changeDistanceUnit(exercise.id)
+                        }
+                      >
+                        <Text style={styles.optionText}>
+                          Change distance unit
+                        </Text>
+
+                        <Text style={styles.optionValue}>
+                          {exercise.distanceUnit} →{" "}
+                          {exercise.distanceUnit === "KM"
+                            ? "MI"
+                            : "KM"}
+                        </Text>
+                      </Pressable>
+                    )}
+
+                    <Pressable
+                      style={styles.optionButton}
+                      onPress={() =>
+                        replaceExercise(exercise.id)
+                      }
+                    >
+                      <Text style={styles.optionText}>
+                        Replace exercise
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.optionButton,
+                        !canMoveUp &&
+                          styles.disabledOption,
+                      ]}
+                      disabled={!canMoveUp}
+                      onPress={() =>
+                        moveExerciseUp(exercise.id)
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          !canMoveUp &&
+                            styles.disabledText,
+                        ]}
+                      >
+                        Move up
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.optionButton,
+                        !canMoveDown &&
+                          styles.disabledOption,
+                      ]}
+                      disabled={!canMoveDown}
+                      onPress={() =>
+                        moveExerciseDown(exercise.id)
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          !canMoveDown &&
+                            styles.disabledText,
+                        ]}
+                      >
+                        Move down
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={() =>
+                        removeExercise(exercise.id)
+                      }
+                    >
+                      <Text style={styles.deleteText}>
+                        Delete exercise
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                <View style={styles.columnHeader}>
+                  <Text style={styles.setHeader}>
                     SET
                   </Text>
 
-                  <Text
-                    style={styles.previousHeader}
-                  >
+                  <Text style={styles.previousHeader}>
                     LAST
                   </Text>
 
-                  <Text
-                    style={styles.inputHeader}
-                  >
+                  <Text style={styles.inputHeader}>
                     WEIGHT
                   </Text>
 
-                  <Text
-                    style={styles.inputHeader}
-                  >
+                  <Text style={styles.inputHeader}>
                     REPS
                   </Text>
 
-                  <View
-                    style={styles.actionHeader}
-                  />
+                  <View style={styles.actionHeader} />
                 </View>
 
                 {exercise.sets.map((set) => {
@@ -211,17 +390,14 @@ export default function HomeScreen() {
 
                   const hasPrevious =
                     previousSet !== undefined &&
-                    (previousSet.weight !==
-                      null ||
-                      previousSet.reps !==
-                        null);
+                    (previousSet.weight !== null ||
+                      previousSet.reps !== null);
 
-                  const previousText =
-                    hasPrevious
-                      ? `${previousSet.weight ?? "—"}×${
-                          previousSet.reps ?? "—"
-                        }`
-                      : "—";
+                  const previousText = hasPrevious
+                    ? `${previousSet?.weight ?? "—"}×${
+                        previousSet?.reps ?? "—"
+                      }`
+                    : "—";
 
                   return (
                     <View
@@ -234,17 +410,11 @@ export default function HomeScreen() {
                         )
                       }
                     >
-                      <Text
-                        style={styles.setNumber}
-                      >
+                      <Text style={styles.setNumber}>
                         {set.setNumber}
                       </Text>
 
-                      <Text
-                        style={
-                          styles.previousValue
-                        }
-                      >
+                      <Text style={styles.previousValue}>
                         {previousText}
                       </Text>
 
@@ -266,7 +436,7 @@ export default function HomeScreen() {
                           )
                         }
                         keyboardType="decimal-pad"
-                        placeholder="kg"
+                        placeholder={exercise.weightUnit.toLowerCase()}
                         placeholderTextColor={
                           Colors.textMuted
                         }
@@ -325,19 +495,15 @@ export default function HomeScreen() {
 
                 <Pressable
                   style={styles.addSetButton}
-                  onPress={() =>
-                    addSet(exercise.id)
-                  }
+                  onPress={() => addSet(exercise.id)}
                 >
-                  <Text
-                    style={styles.addSetText}
-                  >
+                  <Text style={styles.addSetText}>
                     + SET
                   </Text>
                 </Pressable>
               </View>
-            ),
-          )}
+            );
+          })}
 
           {exercises.length === 0 && (
             <View style={styles.empty}>
@@ -379,9 +545,7 @@ export default function HomeScreen() {
             router.push("/workout-setup")
           }
         >
-          <Text
-            style={styles.startButtonText}
-          >
+          <Text style={styles.startButtonText}>
             START WORKOUT
           </Text>
         </Pressable>
@@ -457,10 +621,25 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
 
-  exerciseHeader: {
+  exerciseHeaderButton: {
+    minHeight: 58,
+    marginBottom: 10,
+    borderRadius: 6,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+
+  exerciseHeaderButtonPressed: {
+    opacity: 0.65,
+  },
+
+  exerciseHeaderContent: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    justifyContent: "space-between",
   },
 
   exerciseName: {
@@ -471,18 +650,93 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  exerciseMenuButton: {
-    width: 32,
-    height: 32,
+  exerciseMenuHint: {
+    marginLeft: 12,
+    color: Colors.accent,
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
+
+  optionsPanel: {
+    marginBottom: 12,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    borderRadius: 7,
+    backgroundColor: Colors.background,
+  },
+
+  optionsHeader: {
+    minHeight: 42,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    marginBottom: 4,
+  },
+
+  optionsTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  closeButton: {
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  exerciseMenuText: {
+  closeButtonText: {
     color: Colors.textMuted,
-    fontSize: 25,
-    fontWeight: "900",
-    lineHeight: 25,
+    fontSize: 28,
+    lineHeight: 30,
+  },
+
+  optionButton: {
+    minHeight: 46,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+
+  optionText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  optionValue: {
+    color: Colors.accent,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  disabledOption: {
+    opacity: 0.3,
+  },
+
+  disabledText: {
+    color: Colors.textMuted,
+  },
+
+  deleteButton: {
+    minHeight: 46,
+    paddingHorizontal: 10,
+    justifyContent: "center",
+  },
+
+  deleteText: {
+    color: "#E05252",
+    fontSize: 14,
+    fontWeight: "700",
   },
 
   columnHeader: {

@@ -2,9 +2,7 @@ import {
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
-
 import { useEffect, useState } from "react";
-
 import {
   ActivityIndicator,
   Pressable,
@@ -14,16 +12,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
-
 import {
   useWorkout,
   type WorkoutExercise,
 } from "@/context/workout-context";
-
 import {
   getExercises,
   type ExerciseMeasurementType,
@@ -39,31 +34,26 @@ type Exercise = {
 export default function ExercisePickerScreen() {
   const router = useRouter();
 
-  const { mode } =
-    useLocalSearchParams<{
-      mode?: string;
-    }>();
+  const {
+    mode,
+    replaceExerciseId,
+  } = useLocalSearchParams<{
+    mode?: string;
+    replaceExerciseId?: string;
+  }>();
 
   const {
     addExercise,
+    replaceExercise,
     startWorkout,
   } = useWorkout();
 
-  const [exercises, setExercises] =
-    useState<Exercise[]>([]);
-
-  const [
-    selectedExercises,
-    setSelectedExercises,
-  ] = useState<WorkoutExercise[]>(
-    [],
-  );
-
-  const [search, setSearch] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(true);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [selectedExercises, setSelectedExercises] =
+    useState<WorkoutExercise[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     loadExercises();
@@ -71,9 +61,7 @@ export default function ExercisePickerScreen() {
 
   async function loadExercises() {
     try {
-      const data =
-        await getExercises();
-
+      const data = await getExercises();
       setExercises(data);
     } catch (error) {
       console.error(
@@ -85,60 +73,79 @@ export default function ExercisePickerScreen() {
     }
   }
 
-  async function selectExercise(
+  function createWorkoutExercise(
     exercise: Exercise,
-  ) {
-    const alreadySelected =
-      selectedExercises.some(
-        (item) =>
-          item.exerciseId ===
-          exercise.id,
-      );
-
-    if (alreadySelected) {
-      return;
-    }
-
-    const newExercise:
-      WorkoutExercise = {
+  ): WorkoutExercise {
+    return {
       id: `exercise-${exercise.id}-${Date.now()}-${Math.random()}`,
-
-      exerciseId:
-        exercise.id,
-
-      name:
-        exercise.name,
-
-      description:
-        exercise.description,
-
-      measurementType:
-        exercise.measurementType,
-
+      exerciseId: exercise.id,
+      name: exercise.name,
+      description: exercise.description,
+      measurementType: exercise.measurementType,
       weightUnit: "KG",
-
       distanceUnit: "KM",
-
       sets: [
         {
-          id: `set-${exercise.id}-${Date.now()}`,
-
+          id: `set-${exercise.id}-${Date.now()}-${Math.random()}`,
           setNumber: 1,
-
           weight: "",
-
           reps: "",
-
           distance: "",
-
           durationSeconds: "",
-
           completed: false,
         },
       ],
     };
+  }
 
+  async function selectExercise(
+    exercise: Exercise,
+  ) {
+    if (processing) {
+      return;
+    }
+
+    const newExercise =
+      createWorkoutExercise(exercise);
+
+    /*
+     * REPLACEMENT MODE
+     */
+    if (replaceExerciseId) {
+      setProcessing(true);
+
+      try {
+        await replaceExercise(
+          replaceExerciseId,
+          newExercise,
+        );
+
+        router.back();
+      } catch (error) {
+        console.error(
+          "Failed to replace exercise:",
+          error,
+        );
+        setProcessing(false);
+      }
+
+      return;
+    }
+
+    /*
+     * FREESTYLE MULTI-SELECT MODE
+     */
     if (mode === "freestyle") {
+      const alreadySelected =
+        selectedExercises.some(
+          (item) =>
+            item.exerciseId === exercise.id,
+        );
+
+      if (alreadySelected) {
+        return;
+      }
+
       setSelectedExercises(
         (current) => [
           ...current,
@@ -149,20 +156,32 @@ export default function ExercisePickerScreen() {
       return;
     }
 
-    await addExercise(
-      newExercise,
-    );
+    /*
+     * NORMAL ACTIVE-WORKOUT ADD MODE
+     */
+    setProcessing(true);
 
-    router.back();
+    try {
+      await addExercise(newExercise);
+      router.back();
+    } catch (error) {
+      console.error(
+        "Failed to add exercise:",
+        error,
+      );
+      setProcessing(false);
+    }
   }
 
   async function finishSelection() {
     if (
-      selectedExercises.length ===
-      0
+      selectedExercises.length === 0 ||
+      processing
     ) {
       return;
     }
+
+    setProcessing(true);
 
     try {
       await startWorkout(
@@ -176,171 +195,69 @@ export default function ExercisePickerScreen() {
         "Failed to start freestyle workout:",
         error,
       );
+      setProcessing(false);
     }
   }
 
   const filteredExercises =
-    exercises.filter(
-      (exercise) =>
-        exercise.name
-          .toLowerCase()
-          .includes(
-            search.toLowerCase(),
-          ),
+    exercises.filter((exercise) =>
+      exercise.name
+        .toLowerCase()
+        .includes(
+          search.trim().toLowerCase(),
+        ),
     );
-
-  if (loading) {
-    return (
-      <SafeAreaView
-        style={styles.safeArea}
-        edges={["top", "bottom"]}
-      >
-        <View
-          style={styles.center}
-        >
-          <ActivityIndicator
-            size="large"
-          />
-
-          <Text
-            style={
-              styles.loadingText
-            }
-          >
-            Loading exercises...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView
-      style={styles.safeArea}
+      style={styles.container}
       edges={["top", "bottom"]}
     >
-      <View
-        style={styles.container}
-      >
-        <View
-          style={styles.header}
+      <View style={styles.header}>
+        <Pressable
+          style={styles.backButton}
+          onPress={() => router.back()}
         >
-          <Pressable
-            onPress={() =>
-              router.back()
-            }
-            style={
-              styles.backButton
-            }
-          >
-            <Text
-              style={
-                styles.backText
-              }
-            >
-              ‹
-            </Text>
-          </Pressable>
-
-          <Text
-            style={styles.title}
-          >
-            ADD EXERCISE
+          <Text style={styles.backText}>
+            ←
           </Text>
+        </Pressable>
 
-          {mode ===
-          "freestyle" ? (
-            <Pressable
-              style={[
-                styles.doneButton,
-                selectedExercises.length ===
-                  0 &&
-                  styles.doneButtonDisabled,
-              ]}
-              disabled={
-                selectedExercises.length ===
-                0
-              }
-              onPress={
-                finishSelection
-              }
-            >
-              <Text
-                style={[
-                  styles.doneText,
-                  selectedExercises.length ===
-                    0 &&
-                    styles.doneTextDisabled,
-                ]}
-              >
-                DONE
-              </Text>
-            </Pressable>
-          ) : (
-            <View
-              style={
-                styles.headerSpacer
-              }
-            />
-          )}
-        </View>
+        <Text style={styles.title}>
+          {replaceExerciseId
+            ? "Replace Exercise"
+            : "Add Exercise"}
+        </Text>
 
-        {mode ===
-          "freestyle" &&
-          selectedExercises.length >
-            0 && (
-            <View
-              style={
-                styles.selectedBar
-              }
-            >
-              <Text
-                style={
-                  styles.selectedText
-                }
-              >
-                {
-                  selectedExercises.length
-                }{" "}
-                selected
-              </Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
-              <Text
-                style={
-                  styles.selectedNames
-                }
-              >
-                {selectedExercises
-                  .map(
-                    (item) =>
-                      item.name,
-                  )
-                  .join(" • ")}
-              </Text>
-            </View>
-          )}
-
+      <View style={styles.searchContainer}>
         <TextInput
-          style={
-            styles.searchInput
-          }
+          style={styles.searchInput}
           value={search}
-          onChangeText={
-            setSearch
-          }
+          onChangeText={setSearch}
           placeholder="Search exercises..."
           placeholderTextColor={
             Colors.textMuted
           }
-          autoCapitalize="none"
-          autoCorrect={false}
+          editable={!processing}
         />
+      </View>
 
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator
+            color={Colors.accent}
+          />
+        </View>
+      ) : (
         <ScrollView
           contentContainerStyle={
-            styles.list
+            styles.content
           }
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {filteredExercises.map(
             (exercise) => {
@@ -353,13 +270,14 @@ export default function ExercisePickerScreen() {
 
               return (
                 <Pressable
-                  key={
-                    exercise.id
-                  }
+                  key={exercise.id}
+                  disabled={processing}
                   style={[
                     styles.exerciseRow,
                     selected &&
                       styles.exerciseRowSelected,
+                    processing &&
+                      styles.disabledRow,
                   ]}
                   onPress={() =>
                     selectExercise(
@@ -377,32 +295,41 @@ export default function ExercisePickerScreen() {
                         styles.exerciseName
                       }
                     >
-                      {
-                        exercise.name
-                      }
+                      {exercise.name}
                     </Text>
 
-                    {exercise.description ? (
+                    {exercise.description && (
                       <Text
                         style={
                           styles.description
                         }
+                        numberOfLines={2}
                       >
                         {
                           exercise.description
                         }
                       </Text>
-                    ) : null}
+                    )}
+
+                    <Text
+                      style={
+                        styles.measurement
+                      }
+                    >
+                      {
+                        exercise.measurementType
+                      }
+                    </Text>
                   </View>
 
                   <Text
                     style={
-                      styles.plus
+                      selected
+                        ? styles.selectedText
+                        : styles.addText
                     }
                   >
-                    {selected
-                      ? "✓"
-                      : "+"}
+                    {selected ? "✓" : "+"}
                   </Text>
                 </Pressable>
               );
@@ -411,169 +338,122 @@ export default function ExercisePickerScreen() {
 
           {filteredExercises.length ===
             0 && (
-            <View
-              style={styles.empty}
-            >
+            <View style={styles.empty}>
               <Text
-                style={
-                  styles.emptyText
-                }
+                style={styles.emptyText}
               >
                 No exercises found.
               </Text>
             </View>
           )}
+
+          {mode === "freestyle" &&
+            selectedExercises.length > 0 && (
+              <Pressable
+                style={[
+                  styles.startButton,
+                  processing &&
+                    styles.disabledStartButton,
+                ]}
+                disabled={processing}
+                onPress={finishSelection}
+              >
+                <Text
+                  style={
+                    styles.startButtonText
+                  }
+                >
+                  {processing
+                    ? "STARTING..."
+                    : `START WORKOUT (${selectedExercises.length})`}
+                </Text>
+              </Pressable>
+            )}
         </ScrollView>
-      </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor:
-      Colors.background,
-  },
-
   container: {
     flex: 1,
-    backgroundColor:
-      Colors.background,
-  },
-
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor:
-      Colors.background,
-  },
-
-  loadingText: {
-    marginTop: 12,
-    color: Colors.textMuted,
+    backgroundColor: Colors.background,
   },
 
   header: {
+    minHeight: 58,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 64,
-    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
 
   backButton: {
-    width: 44,
-    height: 44,
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
   },
 
   backText: {
     color: Colors.text,
-    fontSize: 38,
-    lineHeight: 38,
+    fontSize: 28,
+    lineHeight: 30,
   },
 
   title: {
     flex: 1,
-    textAlign: "center",
-    fontSize: 21,
-    fontWeight: "900",
-    letterSpacing: 1,
     color: Colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
   },
 
   headerSpacer: {
-    width: 72,
+    width: 42,
   },
 
-  doneButton: {
-    minWidth: 72,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 6,
-    backgroundColor:
-      Colors.accent,
-  },
-
-  doneButtonDisabled: {
-    opacity: 0.35,
-  },
-
-  doneText: {
-    color: Colors.background,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-
-  doneTextDisabled: {
-    color: Colors.text,
-  },
-
-  selectedBar: {
-    marginHorizontal: 16,
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderLeftWidth: 3,
-    borderLeftColor:
-      Colors.accent,
-    backgroundColor:
-      Colors.surface,
-  },
-
-  selectedText: {
-    color: Colors.accent,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-
-  selectedNames: {
-    marginTop: 3,
-    color: Colors.textMuted,
-    fontSize: 12,
+  searchContainer: {
+    padding: 12,
   },
 
   searchInput: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    height: 48,
+    height: 44,
     paddingHorizontal: 14,
-    borderRadius: 7,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor:
-      Colors.surface,
+    borderRadius: 7,
+    backgroundColor: Colors.surface,
     color: Colors.text,
-    fontSize: 16,
+    fontSize: 15,
   },
 
-  list: {
-    paddingHorizontal: 16,
-    paddingBottom: 30,
+  content: {
+    paddingHorizontal: 12,
+    paddingBottom: 32,
   },
 
   exerciseRow: {
+    minHeight: 70,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 68,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 8,
-    borderRadius: 7,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor:
-      Colors.surface,
+    borderRadius: 7,
+    backgroundColor: Colors.surface,
   },
 
   exerciseRowSelected: {
-    borderColor:
-      Colors.accent,
+    borderColor: Colors.accent,
+  },
+
+  disabledRow: {
+    opacity: 0.5,
   },
 
   exerciseInfo: {
@@ -582,30 +462,70 @@ const styles = StyleSheet.create({
 
   exerciseName: {
     color: Colors.text,
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "800",
   },
 
   description: {
-    marginTop: 4,
+    marginTop: 3,
     color: Colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
   },
 
-  plus: {
+  measurement: {
+    marginTop: 4,
+    color: Colors.textMuted,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+
+  addText: {
     marginLeft: 12,
     color: Colors.accent,
     fontSize: 25,
     fontWeight: "700",
   },
 
+  selectedText: {
+    marginLeft: 12,
+    color: Colors.accent,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+
+  loading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   empty: {
-    padding: 30,
+    paddingVertical: 50,
     alignItems: "center",
   },
 
   emptyText: {
     color: Colors.textMuted,
-    fontSize: 16,
+    fontSize: 15,
+  },
+
+  startButton: {
+    marginTop: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    borderRadius: 7,
+    backgroundColor: Colors.accent,
+  },
+
+  disabledStartButton: {
+    opacity: 0.5,
+  },
+
+  startButtonText: {
+    color: Colors.background,
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 0.8,
   },
 });
