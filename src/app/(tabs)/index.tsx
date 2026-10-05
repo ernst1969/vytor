@@ -1,12 +1,14 @@
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Button, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Colors } from "@/constants/theme";
 import { useWorkout } from "@/context/workout-context";
 import { checkBackend } from "../../services/api";
 
 export default function HomeScreen() {
-  const { isActive, startWorkout } = useWorkout();
+  const { isActive } = useWorkout();
+  const router = useRouter();
 
   const [backendStatus, setBackendStatus] = useState("Checking...");
 
@@ -23,8 +25,6 @@ export default function HomeScreen() {
 
         <Text style={styles.subtitle}>Active workout</Text>
 
-        {/* Workout exercises and sets will go here later. */}
-
         <Text style={styles.backendStatus}>
           Backend: {backendStatus}
         </Text>
@@ -38,11 +38,12 @@ export default function HomeScreen() {
 
       <Text style={styles.subtitle}>Ready to train?</Text>
 
-      <Button
-        title="Start Workout"
-        onPress={startWorkout}
-        color={Colors.accent}
-      />
+      <Pressable
+        style={styles.startButton}
+        onPress={() => router.push("/workout-setup")}
+      >
+        <Text style={styles.startButtonText}>START WORKOUT</Text>
+      </Pressable>
 
       <Text style={styles.backendStatus}>
         Backend: {backendStatus}
@@ -71,6 +72,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: 32,
     color: Colors.textMuted,
+  },
+
+  startButton: {
+    width: "100%",
+    maxWidth: 360,
+    paddingVertical: 18,
+    borderRadius: 8,
+    alignItems: "center",
+    backgroundColor: Colors.accent,
+  },
+
+  startButtonText: {
+    color: Colors.background,
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: 1,
   },
 
   backendStatus: {

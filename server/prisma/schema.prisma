@@ -15,11 +15,76 @@ model User {
   workouts     Workout[]
 }
 
-model Workout {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  startedAt DateTime
-  endedAt   DateTime?
+model Exercise {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
 
-  user      User @relation(fields: [userId], references: [id])
+  workoutExercises         WorkoutExercise[]
+  workoutTemplateExercises WorkoutTemplateExercise[]
+}
+
+model WorkoutTemplate {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  exercises WorkoutTemplateExercise[]
+  workouts  Workout[]
+}
+
+model WorkoutTemplateExercise {
+  id         Int @id @default(autoincrement())
+  templateId Int
+  exerciseId Int
+  order      Int
+
+  template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, exerciseId])
+  @@index([templateId, order])
+}
+
+model Workout {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  templateId Int?
+
+  user     User             @relation(fields: [userId], references: [id])
+  template WorkoutTemplate? @relation(fields: [templateId], references: [id])
+
+  exercises WorkoutExercise[]
+
+  @@index([userId, startedAt])
+}
+
+model WorkoutExercise {
+  id         Int @id @default(autoincrement())
+  workoutId  Int
+  exerciseId Int
+  order      Int
+
+  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+
+  sets WorkoutSet[]
+
+  @@unique([workoutId, exerciseId])
+  @@index([workoutId, order])
+}
+
+model WorkoutSet {
+  id               Int    @id @default(autoincrement())
+  workoutExerciseId Int
+  setNumber        Int
+  weight           Float?
+  reps             Int?
+
+  workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([workoutExerciseId, setNumber])
+  @@index([workoutExerciseId])
 }
