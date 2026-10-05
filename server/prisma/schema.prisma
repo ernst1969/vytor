@@ -6,22 +6,48 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ExerciseMeasurement {
+  WEIGHT_REPS
+  BODYWEIGHT_REPS
+  REPS
+  DISTANCE_TIME
+  TIME
+  WEIGHT_DISTANCE
+}
+
+enum WeightUnit {
+  KG
+  LBS
+}
+
+enum DistanceUnit {
+  KM
+  MILES
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
   id           Int       @id @default(autoincrement())
   username     String    @unique
   passwordHash String?
   createdAt    DateTime  @default(now())
 
-  workouts     Workout[]
+  workouts Workout[]
 
   sentFriendRequests     FriendRequest[] @relation("sentFriendRequests")
   receivedFriendRequests FriendRequest[] @relation("receivedFriendRequests")
 }
 
 model Exercise {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
+  id          Int                @id @default(autoincrement())
+  name        String             @unique
   description String?
+  measurement ExerciseMeasurement @default(WEIGHT_REPS)
 
   workoutExercises         WorkoutExercise[]
   workoutTemplateExercises WorkoutTemplateExercise[]
@@ -43,7 +69,7 @@ model WorkoutTemplateExercise {
   order      Int
 
   template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  exercise Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
 
   @@unique([templateId, exerciseId])
   @@index([templateId, order])
@@ -65,10 +91,12 @@ model Workout {
 }
 
 model WorkoutExercise {
-  id         Int @id @default(autoincrement())
-  workoutId  Int
-  exerciseId Int
-  order      Int
+  id            Int @id @default(autoincrement())
+  workoutId     Int
+  exerciseId    Int
+  order         Int
+  weightUnit    WeightUnit   @default(KG)
+  distanceUnit  DistanceUnit @default(KM)
 
   workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   exercise Exercise @relation(fields: [exerciseId], references: [id])
@@ -80,11 +108,14 @@ model WorkoutExercise {
 }
 
 model WorkoutSet {
-  id               Int    @id @default(autoincrement())
+  id               Int @id @default(autoincrement())
   workoutExerciseId Int
   setNumber        Int
+
   weight           Float?
+  distance         Float?
   reps             Int?
+  durationSeconds  Int?
 
   workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
 
@@ -92,24 +123,17 @@ model WorkoutSet {
   @@index([workoutExerciseId])
 }
 
-enum FriendRequestStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-}
-
 model FriendRequest {
-  id          Int                 @id @default(autoincrement())
-  requesterId Int
-  recipientId Int
-  status      FriendRequestStatus @default(PENDING)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id         Int                 @id @default(autoincrement())
+  senderId   Int
+  receiverId Int
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
 
-  requester User @relation("sentFriendRequests", fields: [requesterId], references: [id], onDelete: Cascade)
-  recipient User @relation("receivedFriendRequests", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender   User @relation("sentFriendRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("receivedFriendRequests", fields: [receiverId], references: [id], onDelete: Cascade)
 
-  @@unique([requesterId, recipientId])
-  @@index([requesterId, status])
-  @@index([recipientId, status])
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@index([senderId, status])
 }

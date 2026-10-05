@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
 import {
   createContext,
   useContext,
@@ -12,6 +11,10 @@ import {
   createWorkout,
   finishWorkout as finishWorkoutApi,
   getLastExerciseWorkout,
+  updateWorkoutExerciseSettings,
+  type DistanceUnit,
+  type ExerciseMeasurementType,
+  type WeightUnit,
 } from "@/services/api";
 
 export type WorkoutSet = {
@@ -19,6 +22,8 @@ export type WorkoutSet = {
   setNumber: number;
   weight: string;
   reps: string;
+  distance: string;
+  durationSeconds: string;
   completed: boolean;
 };
 
@@ -26,16 +31,28 @@ export type PreviousWorkoutSet = {
   setNumber: number;
   weight: number | null;
   reps: number | null;
+  distance: number | null;
+  durationSeconds: number | null;
 };
 
 export type WorkoutExercise = {
   id: string;
   exerciseId: number;
   name: string;
+  description?: string | null;
+  measurementType: ExerciseMeasurementType;
+  weightUnit: WeightUnit;
+  distanceUnit: DistanceUnit;
   sets: WorkoutSet[];
   workoutExerciseId?: number;
   previousSets?: PreviousWorkoutSet[];
 };
+
+type UpdateSetField =
+  | "weight"
+  | "reps"
+  | "distance"
+  | "durationSeconds";
 
 type WorkoutContextValue = {
   startedAt: number | null;
@@ -60,8 +77,18 @@ type WorkoutContextValue = {
   updateSet: (
     exerciseId: string,
     setId: string,
-    field: "weight" | "reps",
+    field: UpdateSetField,
     value: string,
+  ) => void;
+
+  updateWeightUnit: (
+    exerciseId: string,
+    unit: WeightUnit,
+  ) => void;
+
+  updateDistanceUnit: (
+    exerciseId: string,
+    unit: DistanceUnit,
   ) => void;
 
   addExercise: (
@@ -72,6 +99,175 @@ type WorkoutContextValue = {
 const WorkoutContext =
   createContext<WorkoutContextValue | null>(null);
 
+const KG_PER_LB = 0.45359237;
+const KM_PER_MI = 1.609344;
+
+function convertWeight(
+  value: string,
+  from: WeightUnit,
+  to: WeightUnit,
+) {
+  if (!value) {
+    return value;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return value;
+  }
+
+  if (from === to) {
+    return value;
+  }
+
+  if (from === "KG" && to === "LBS") {
+    return String(
+      Number((number / KG_PER_LB).toFixed(2)),
+    );
+  }
+
+  return String(
+    Number((number * KG_PER_LB).toFixed(2)),
+  );
+}
+
+function convertDistance(
+  value: string,
+  from: DistanceUnit,
+  to: DistanceUnit,
+) {
+  if (!value) {
+    return value;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return value;
+  }
+
+  if (from === to) {
+    return value;
+  }
+
+  if (from === "KM" && to === "MI") {
+    return String(
+      Number((number / KM_PER_MI).toFixed(2)),
+    );
+  }
+
+  return String(
+    Number((number * KM_PER_MI).toFixed(2)),
+  );
+}
+
+function stringToNumber(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return number;
+}
+
+function stringToInteger(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(number));
+}
+
+function normalizeExercise(
+  exercise: WorkoutExercise,
+): WorkoutExercise {
+  return {
+    ...exercise,
+
+    measurementType:
+      exercise.measurementType ?? "WEIGHT_REPS",
+
+    weightUnit:
+      exercise.weightUnit ?? "KG",
+
+    distanceUnit:
+      exercise.distanceUnit ?? "KM",
+
+    sets: exercise.sets.map((set) => ({
+      ...set,
+      weight: set.weight ?? "",
+      reps: set.reps ?? "",
+      distance: set.distance ?? "",
+      durationSeconds:
+        set.durationSeconds ?? "",
+      completed:
+        set.completed ?? false,
+    })),
+  };
+}
+
+function getRelevantSetValues(
+  exercise: WorkoutExercise,
+  set: WorkoutSet,
+) {
+  const result: {
+    weight?: number | null;
+    reps?: number | null;
+    distance?: number | null;
+    durationSeconds?: number | null;
+  } = {
+    reps: null,
+    weight: null,
+    distance: null,
+    durationSeconds: null,
+  };
+
+  switch (exercise.measurementType) {
+    case "WEIGHT_REPS":
+      result.weight = stringToNumber(set.weight);
+      result.reps = stringToInteger(set.reps);
+      break;
+
+    case "REPS":
+      result.reps = stringToInteger(set.reps);
+      break;
+
+    case "DISTANCE_TIME":
+      result.distance = stringToNumber(set.distance);
+      result.durationSeconds = stringToInteger(
+        set.durationSeconds,
+      );
+      break;
+
+    case "TIME":
+      result.durationSeconds = stringToInteger(
+        set.durationSeconds,
+      );
+      break;
+
+    case "WEIGHT_DISTANCE":
+      result.weight = stringToNumber(set.weight);
+      result.distance = stringToNumber(
+        set.distance,
+      );
+      break;
+  }
+
+  return result;
+}
+
 export function WorkoutProvider({
   children,
 }: {
@@ -80,9 +276,8 @@ export function WorkoutProvider({
   const [startedAt, setStartedAt] =
     useState<number | null>(null);
 
-  const [exercises, setExercises] = useState<
-    WorkoutExercise[]
-  >([]);
+  const [exercises, setExercises] =
+    useState<WorkoutExercise[]>([]);
 
   const [workoutId, setWorkoutId] =
     useState<number | null>(null);
@@ -102,12 +297,6 @@ export function WorkoutProvider({
               exercise.exerciseId,
               userId,
             );
-
-          console.log(
-            "Previous workout:",
-            exercise.name,
-            JSON.stringify(previous),
-          );
 
           return {
             ...exercise,
@@ -135,15 +324,14 @@ export function WorkoutProvider({
   ) {
     try {
       const storedUserId =
-        await AsyncStorage.getItem("vytor_user_id");
-
-      console.log(
-        "Vytor stored user ID:",
-        storedUserId,
-      );
+        await AsyncStorage.getItem(
+          "vytor_user_id",
+        );
 
       if (!storedUserId) {
-        throw new Error("No logged-in user found");
+        throw new Error(
+          "No logged-in user found",
+        );
       }
 
       const userId = Number(storedUserId);
@@ -152,32 +340,34 @@ export function WorkoutProvider({
         throw new Error("Invalid user ID");
       }
 
+      const normalizedExercises =
+        newExercises.map(normalizeExercise);
+
       const workout = await createWorkout(
         userId,
         templateId,
-        newExercises.map((exercise) => ({
-          exerciseId: exercise.exerciseId,
-        })),
-      );
-
-      console.log(
-        "Workout created:",
-        workout.id,
+        normalizedExercises.map(
+          (exercise) => ({
+            exerciseId: exercise.exerciseId,
+            weightUnit:
+              exercise.weightUnit,
+            distanceUnit:
+              exercise.distanceUnit,
+          }),
+        ),
       );
 
       const databaseExercises =
         workout.exercises ?? [];
 
       const exercisesWithDatabaseIds =
-        newExercises.map((exercise, index) => ({
-          ...exercise,
-          sets: exercise.sets.map((set) => ({
-            ...set,
-            completed: set.completed ?? false,
-          })),
-          workoutExerciseId:
-            databaseExercises[index]?.id,
-        }));
+        normalizedExercises.map(
+          (exercise, index) => ({
+            ...exercise,
+            workoutExerciseId:
+              databaseExercises[index]?.id,
+          }),
+        );
 
       const exercisesWithPreviousData =
         await loadPreviousSets(
@@ -185,7 +375,10 @@ export function WorkoutProvider({
           userId,
         );
 
-      setExercises(exercisesWithPreviousData);
+      setExercises(
+        exercisesWithPreviousData,
+      );
+
       setWorkoutId(workout.id);
       setRestEndsAt(null);
       setStartedAt(Date.now());
@@ -208,39 +401,59 @@ export function WorkoutProvider({
     }
 
     try {
-      console.log(
-        "Finishing workout:",
-        workoutId,
-      );
-
       const workoutExercises = exercises
         .filter(
           (exercise) =>
-            exercise.workoutExerciseId !== undefined,
+            exercise.workoutExerciseId !==
+            undefined,
         )
         .map((exercise) => ({
           workoutExerciseId:
             exercise.workoutExerciseId!,
+
+          weightUnit:
+            exercise.weightUnit,
+
+          distanceUnit:
+            exercise.distanceUnit,
+
           sets: exercise.sets
-            .filter((set) => set.completed)
-            .map((set) => ({
-              setNumber: set.setNumber,
-              weight: set.weight,
-              reps: set.reps,
-            })),
+            .filter(
+              (set) => set.completed,
+            )
+            .map((set) => {
+              const values =
+                getRelevantSetValues(
+                  exercise,
+                  set,
+                );
+
+              return {
+                setNumber:
+                  set.setNumber,
+
+                weight:
+                  values.weight,
+
+                reps:
+                  values.reps,
+
+                distance:
+                  values.distance,
+
+                durationSeconds:
+                  values.durationSeconds,
+              };
+            }),
         }))
         .filter(
-          (exercise) => exercise.sets.length > 0,
+          (exercise) =>
+            exercise.sets.length > 0,
         );
 
       await finishWorkoutApi(
         workoutId,
         workoutExercises,
-      );
-
-      console.log(
-        "Workout saved successfully:",
-        workoutId,
       );
 
       setStartedAt(null);
@@ -258,29 +471,40 @@ export function WorkoutProvider({
   }
 
   function addSet(exerciseId: string) {
-    setExercises((currentExercises) =>
-      currentExercises.map((exercise) => {
-        if (exercise.id !== exerciseId) {
-          return exercise;
-        }
+    setExercises(
+      (currentExercises) =>
+        currentExercises.map(
+          (exercise) => {
+            if (
+              exercise.id !==
+              exerciseId
+            ) {
+              return exercise;
+            }
 
-        const nextSetNumber =
-          exercise.sets.length + 1;
+            const nextSetNumber =
+              exercise.sets.length + 1;
 
-        return {
-          ...exercise,
-          sets: [
-            ...exercise.sets,
-            {
-              id: `${exercise.id}-set-${Date.now()}`,
-              setNumber: nextSetNumber,
-              weight: "",
-              reps: "",
-              completed: false,
-            },
-          ],
-        };
-      }),
+            return {
+              ...exercise,
+
+              sets: [
+                ...exercise.sets,
+
+                {
+                  id: `${exercise.id}-set-${Date.now()}`,
+                  setNumber:
+                    nextSetNumber,
+                  weight: "",
+                  reps: "",
+                  distance: "",
+                  durationSeconds: "",
+                  completed: false,
+                },
+              ],
+            };
+          },
+        ),
     );
   }
 
@@ -288,82 +512,241 @@ export function WorkoutProvider({
     exerciseId: string,
     setId: string,
   ) {
-    setExercises((currentExercises) =>
-      currentExercises.map((exercise) => {
-        if (exercise.id !== exerciseId) {
-          return exercise;
-        }
-
-        return {
-          ...exercise,
-          sets: exercise.sets.map((set) => {
-            if (set.id !== setId) {
-              return set;
-            }
-
-            const completed = !set.completed;
-
-            if (completed) {
-              setRestEndsAt(
-                Date.now() + 90 * 1000,
-              );
-            } else {
-              setRestEndsAt(null);
+    setExercises(
+      (currentExercises) =>
+        currentExercises.map(
+          (exercise) => {
+            if (
+              exercise.id !==
+              exerciseId
+            ) {
+              return exercise;
             }
 
             return {
-              ...set,
-              completed,
+              ...exercise,
+
+              sets: exercise.sets.map(
+                (set) => {
+                  if (
+                    set.id !== setId
+                  ) {
+                    return set;
+                  }
+
+                  const completed =
+                    !set.completed;
+
+                  if (completed) {
+                    setRestEndsAt(
+                      Date.now() +
+                        90 * 1000,
+                    );
+                  } else {
+                    setRestEndsAt(
+                      null,
+                    );
+                  }
+
+                  return {
+                    ...set,
+                    completed,
+                  };
+                },
+              ),
             };
-          }),
-        };
-      }),
+          },
+        ),
     );
   }
 
   function updateSet(
     exerciseId: string,
     setId: string,
-    field: "weight" | "reps",
+    field: UpdateSetField,
     value: string,
   ) {
-    setExercises((currentExercises) =>
-      currentExercises.map((exercise) => {
-        if (exercise.id !== exerciseId) {
-          return exercise;
-        }
-
-        return {
-          ...exercise,
-          sets: exercise.sets.map((set) => {
-            if (set.id !== setId) {
-              return set;
+    setExercises(
+      (currentExercises) =>
+        currentExercises.map(
+          (exercise) => {
+            if (
+              exercise.id !==
+              exerciseId
+            ) {
+              return exercise;
             }
 
             return {
-              ...set,
-              [field]: value,
+              ...exercise,
+
+              sets: exercise.sets.map(
+                (set) => {
+                  if (
+                    set.id !== setId
+                  ) {
+                    return set;
+                  }
+
+                  return {
+                    ...set,
+                    [field]: value,
+                  };
+                },
+              ),
             };
-          }),
-        };
-      }),
+          },
+        ),
     );
+  }
+
+  function updateWeightUnit(
+    exerciseId: string,
+    unit: WeightUnit,
+  ) {
+    let changedExercise:
+      | WorkoutExercise
+      | undefined;
+
+    setExercises(
+      (currentExercises) =>
+        currentExercises.map(
+          (exercise) => {
+            if (
+              exercise.id !==
+              exerciseId
+            ) {
+              return exercise;
+            }
+
+            if (
+              exercise.weightUnit ===
+              unit
+            ) {
+              return exercise;
+            }
+
+            changedExercise =
+              exercise;
+
+            return {
+              ...exercise,
+
+              weightUnit: unit,
+
+              sets: exercise.sets.map(
+                (set) => ({
+                  ...set,
+                  weight:
+                    convertWeight(
+                      set.weight,
+                      exercise.weightUnit,
+                      unit,
+                    ),
+                }),
+              ),
+            };
+          },
+        ),
+    );
+
+    if (
+      changedExercise?.workoutExerciseId
+    ) {
+      void updateWorkoutExerciseSettings(
+        changedExercise.workoutExerciseId,
+        {
+          weightUnit: unit,
+        },
+      ).catch((error) => {
+        console.error(
+          "Failed to save weight unit:",
+          error,
+        );
+      });
+    }
+  }
+
+  function updateDistanceUnit(
+    exerciseId: string,
+    unit: DistanceUnit,
+  ) {
+    let changedExercise:
+      | WorkoutExercise
+      | undefined;
+
+    setExercises(
+      (currentExercises) =>
+        currentExercises.map(
+          (exercise) => {
+            if (
+              exercise.id !==
+              exerciseId
+            ) {
+              return exercise;
+            }
+
+            if (
+              exercise.distanceUnit ===
+              unit
+            ) {
+              return exercise;
+            }
+
+            changedExercise =
+              exercise;
+
+            return {
+              ...exercise,
+
+              distanceUnit: unit,
+
+              sets: exercise.sets.map(
+                (set) => ({
+                  ...set,
+                  distance:
+                    convertDistance(
+                      set.distance,
+                      exercise.distanceUnit,
+                      unit,
+                    ),
+                }),
+              ),
+            };
+          },
+        ),
+    );
+
+    if (
+      changedExercise?.workoutExerciseId
+    ) {
+      void updateWorkoutExerciseSettings(
+        changedExercise.workoutExerciseId,
+        {
+          distanceUnit: unit,
+        },
+      ).catch((error) => {
+        console.error(
+          "Failed to save distance unit:",
+          error,
+        );
+      });
+    }
   }
 
   async function addExercise(
     exercise: WorkoutExercise,
   ) {
+    const normalizedExercise =
+      normalizeExercise(exercise);
+
     if (!workoutId) {
-      setExercises((currentExercises) => [
-        ...currentExercises,
-        {
-          ...exercise,
-          sets: exercise.sets.map((set) => ({
-            ...set,
-            completed: set.completed ?? false,
-          })),
-        },
-      ]);
+      setExercises(
+        (currentExercises) => [
+          ...currentExercises,
+          normalizedExercise,
+        ],
+      );
 
       return;
     }
@@ -372,13 +755,22 @@ export function WorkoutProvider({
       const databaseExercise =
         await addExerciseToWorkout(
           workoutId,
-          exercise.exerciseId,
+          normalizedExercise.exerciseId,
+          {
+            weightUnit:
+              normalizedExercise.weightUnit,
+            distanceUnit:
+              normalizedExercise.distanceUnit,
+          },
         );
 
       const storedUserId =
-        await AsyncStorage.getItem("vytor_user_id");
+        await AsyncStorage.getItem(
+          "vytor_user_id",
+        );
 
-      const userId = Number(storedUserId);
+      const userId =
+        Number(storedUserId);
 
       let previousSets:
         | PreviousWorkoutSet[]
@@ -388,7 +780,7 @@ export function WorkoutProvider({
         try {
           const previous =
             await getLastExerciseWorkout(
-              exercise.exerciseId,
+              normalizedExercise.exerciseId,
               userId,
             );
 
@@ -402,19 +794,18 @@ export function WorkoutProvider({
         }
       }
 
-      setExercises((currentExercises) => [
-        ...currentExercises,
-        {
-          ...exercise,
-          sets: exercise.sets.map((set) => ({
-            ...set,
-            completed: set.completed ?? false,
-          })),
-          workoutExerciseId:
-            databaseExercise.id,
-          previousSets,
-        },
-      ]);
+      setExercises(
+        (currentExercises) => [
+          ...currentExercises,
+
+          {
+            ...normalizedExercise,
+            workoutExerciseId:
+              databaseExercise.id,
+            previousSets,
+          },
+        ],
+      );
     } catch (error) {
       console.error(
         "Failed to add exercise to workout:",
@@ -429,14 +820,25 @@ export function WorkoutProvider({
     <WorkoutContext.Provider
       value={{
         startedAt,
-        isActive: startedAt !== null,
+
+        isActive:
+          startedAt !== null,
+
         exercises,
+
         restEndsAt,
+
         startWorkout,
         finishWorkout,
+
         addSet,
-        updateSet,
         completeSet,
+
+        updateSet,
+
+        updateWeightUnit,
+        updateDistanceUnit,
+
         addExercise,
       }}
     >
@@ -446,7 +848,8 @@ export function WorkoutProvider({
 }
 
 export function useWorkout() {
-  const context = useContext(WorkoutContext);
+  const context =
+    useContext(WorkoutContext);
 
   if (!context) {
     throw new Error(

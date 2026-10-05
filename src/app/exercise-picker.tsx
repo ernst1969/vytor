@@ -1,38 +1,50 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
+
+import { useEffect, useState } from "react";
+
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
+
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
+
 import {
-    useWorkout,
-    type WorkoutExercise,
+  useWorkout,
+  type WorkoutExercise,
 } from "@/context/workout-context";
-import { getExercises } from "@/services/api";
+
+import {
+  getExercises,
+  type ExerciseMeasurementType,
+} from "@/services/api";
 
 type Exercise = {
   id: number;
   name: string;
   description?: string | null;
+  measurementType: ExerciseMeasurementType;
 };
 
 export default function ExercisePickerScreen() {
   const router = useRouter();
 
-  const { mode } = useLocalSearchParams<{
-    mode?: string;
-  }>();
+  const { mode } =
+    useLocalSearchParams<{
+      mode?: string;
+    }>();
 
   const {
-    exercises: activeExercises,
     addExercise,
     startWorkout,
   } = useWorkout();
@@ -40,12 +52,18 @@ export default function ExercisePickerScreen() {
   const [exercises, setExercises] =
     useState<Exercise[]>([]);
 
-  const [selectedExercises, setSelectedExercises] =
-    useState<WorkoutExercise[]>([]);
+  const [
+    selectedExercises,
+    setSelectedExercises,
+  ] = useState<WorkoutExercise[]>(
+    [],
+  );
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] =
+    useState("");
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
 
   useEffect(() => {
     loadExercises();
@@ -53,7 +71,9 @@ export default function ExercisePickerScreen() {
 
   async function loadExercises() {
     try {
-      const data = await getExercises();
+      const data =
+        await getExercises();
+
       setExercises(data);
     } catch (error) {
       console.error(
@@ -71,42 +91,76 @@ export default function ExercisePickerScreen() {
     const alreadySelected =
       selectedExercises.some(
         (item) =>
-          item.exerciseId === exercise.id,
+          item.exerciseId ===
+          exercise.id,
       );
 
     if (alreadySelected) {
       return;
     }
 
-    const newExercise: WorkoutExercise = {
+    const newExercise:
+      WorkoutExercise = {
       id: `exercise-${exercise.id}-${Date.now()}-${Math.random()}`,
-      exerciseId: exercise.id,
-      name: exercise.name,
+
+      exerciseId:
+        exercise.id,
+
+      name:
+        exercise.name,
+
+      description:
+        exercise.description,
+
+      measurementType:
+        exercise.measurementType,
+
+      weightUnit: "KG",
+
+      distanceUnit: "KM",
+
       sets: [
         {
           id: `set-${exercise.id}-${Date.now()}`,
+
           setNumber: 1,
+
           weight: "",
+
           reps: "",
+
+          distance: "",
+
+          durationSeconds: "",
+
+          completed: false,
         },
       ],
     };
 
     if (mode === "freestyle") {
-      setSelectedExercises((current) => [
-        ...current,
-        newExercise,
-      ]);
+      setSelectedExercises(
+        (current) => [
+          ...current,
+          newExercise,
+        ],
+      );
 
       return;
     }
 
-    await addExercise(newExercise);
+    await addExercise(
+      newExercise,
+    );
+
     router.back();
   }
 
   async function finishSelection() {
-    if (selectedExercises.length === 0) {
+    if (
+      selectedExercises.length ===
+      0
+    ) {
       return;
     }
 
@@ -125,12 +179,15 @@ export default function ExercisePickerScreen() {
     }
   }
 
-  const filteredExercises = exercises.filter(
-    (exercise) =>
-      exercise.name
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
+  const filteredExercises =
+    exercises.filter(
+      (exercise) =>
+        exercise.name
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ),
+    );
 
   if (loading) {
     return (
@@ -138,10 +195,18 @@ export default function ExercisePickerScreen() {
         style={styles.safeArea}
         edges={["top", "bottom"]}
       >
-        <View style={styles.center}>
-          <ActivityIndicator size="large" />
+        <View
+          style={styles.center}
+        >
+          <ActivityIndicator
+            size="large"
+          />
 
-          <Text style={styles.loadingText}>
+          <Text
+            style={
+              styles.loadingText
+            }
+          >
             Loading exercises...
           </Text>
         </View>
@@ -154,35 +219,57 @@ export default function ExercisePickerScreen() {
       style={styles.safeArea}
       edges={["top", "bottom"]}
     >
-      <View style={styles.container}>
-        <View style={styles.header}>
+      <View
+        style={styles.container}
+      >
+        <View
+          style={styles.header}
+        >
           <Pressable
-            onPress={() => router.back()}
-            style={styles.backButton}
+            onPress={() =>
+              router.back()
+            }
+            style={
+              styles.backButton
+            }
           >
-            <Text style={styles.backText}>‹</Text>
+            <Text
+              style={
+                styles.backText
+              }
+            >
+              ‹
+            </Text>
           </Pressable>
 
-          <Text style={styles.title}>
+          <Text
+            style={styles.title}
+          >
             ADD EXERCISE
           </Text>
 
-          {mode === "freestyle" ? (
+          {mode ===
+          "freestyle" ? (
             <Pressable
               style={[
                 styles.doneButton,
-                selectedExercises.length === 0 &&
+                selectedExercises.length ===
+                  0 &&
                   styles.doneButtonDisabled,
               ]}
               disabled={
-                selectedExercises.length === 0
+                selectedExercises.length ===
+                0
               }
-              onPress={finishSelection}
+              onPress={
+                finishSelection
+              }
             >
               <Text
                 style={[
                   styles.doneText,
-                  selectedExercises.length === 0 &&
+                  selectedExercises.length ===
+                    0 &&
                     styles.doneTextDisabled,
                 ]}
               >
@@ -190,29 +277,57 @@ export default function ExercisePickerScreen() {
               </Text>
             </Pressable>
           ) : (
-            <View style={styles.headerSpacer} />
+            <View
+              style={
+                styles.headerSpacer
+              }
+            />
           )}
         </View>
 
-        {mode === "freestyle" &&
-          selectedExercises.length > 0 && (
-            <View style={styles.selectedBar}>
-              <Text style={styles.selectedText}>
-                {selectedExercises.length} selected
+        {mode ===
+          "freestyle" &&
+          selectedExercises.length >
+            0 && (
+            <View
+              style={
+                styles.selectedBar
+              }
+            >
+              <Text
+                style={
+                  styles.selectedText
+                }
+              >
+                {
+                  selectedExercises.length
+                }{" "}
+                selected
               </Text>
 
-              <Text style={styles.selectedNames}>
+              <Text
+                style={
+                  styles.selectedNames
+                }
+              >
                 {selectedExercises
-                  .map((item) => item.name)
-                  .join("  •  ")}
+                  .map(
+                    (item) =>
+                      item.name,
+                  )
+                  .join(" • ")}
               </Text>
             </View>
           )}
 
         <TextInput
-          style={styles.searchInput}
+          style={
+            styles.searchInput
+          }
           value={search}
-          onChangeText={setSearch}
+          onChangeText={
+            setSearch
+          }
           placeholder="Search exercises..."
           placeholderTextColor={
             Colors.textMuted
@@ -222,7 +337,9 @@ export default function ExercisePickerScreen() {
         />
 
         <ScrollView
-          contentContainerStyle={styles.list}
+          contentContainerStyle={
+            styles.list
+          }
           keyboardShouldPersistTaps="handled"
         >
           {filteredExercises.map(
@@ -236,23 +353,33 @@ export default function ExercisePickerScreen() {
 
               return (
                 <Pressable
-                  key={exercise.id}
+                  key={
+                    exercise.id
+                  }
                   style={[
                     styles.exerciseRow,
                     selected &&
                       styles.exerciseRowSelected,
                   ]}
                   onPress={() =>
-                    selectExercise(exercise)
+                    selectExercise(
+                      exercise,
+                    )
                   }
                 >
                   <View
-                    style={styles.exerciseInfo}
+                    style={
+                      styles.exerciseInfo
+                    }
                   >
                     <Text
-                      style={styles.exerciseName}
+                      style={
+                        styles.exerciseName
+                      }
                     >
-                      {exercise.name}
+                      {
+                        exercise.name
+                      }
                     </Text>
 
                     {exercise.description ? (
@@ -261,22 +388,37 @@ export default function ExercisePickerScreen() {
                           styles.description
                         }
                       >
-                        {exercise.description}
+                        {
+                          exercise.description
+                        }
                       </Text>
                     ) : null}
                   </View>
 
-                  <Text style={styles.plus}>
-                    {selected ? "✓" : "+"}
+                  <Text
+                    style={
+                      styles.plus
+                    }
+                  >
+                    {selected
+                      ? "✓"
+                      : "+"}
                   </Text>
                 </Pressable>
               );
             },
           )}
 
-          {filteredExercises.length === 0 && (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>
+          {filteredExercises.length ===
+            0 && (
+            <View
+              style={styles.empty}
+            >
+              <Text
+                style={
+                  styles.emptyText
+                }
+              >
                 No exercises found.
               </Text>
             </View>
@@ -290,19 +432,22 @@ export default function ExercisePickerScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor:
+      Colors.background,
   },
 
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor:
+      Colors.background,
   },
 
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.background,
+    backgroundColor:
+      Colors.background,
   },
 
   loadingText: {
@@ -350,7 +495,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 6,
-    backgroundColor: Colors.accent,
+    backgroundColor:
+      Colors.accent,
   },
 
   doneButtonDisabled: {
@@ -374,8 +520,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderLeftWidth: 3,
-    borderLeftColor: Colors.accent,
-    backgroundColor: Colors.surface,
+    borderLeftColor:
+      Colors.accent,
+    backgroundColor:
+      Colors.surface,
   },
 
   selectedText: {
@@ -398,7 +546,8 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    backgroundColor:
+      Colors.surface,
     color: Colors.text,
     fontSize: 16,
   },
@@ -418,11 +567,13 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    backgroundColor:
+      Colors.surface,
   },
 
   exerciseRowSelected: {
-    borderColor: Colors.accent,
+    borderColor:
+      Colors.accent,
   },
 
   exerciseInfo: {

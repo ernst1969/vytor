@@ -1,5 +1,23 @@
 const API_URL = "http://192.168.2.33:3000";
 
+export type ExerciseMeasurementType =
+  | "WEIGHT_REPS"
+  | "REPS"
+  | "DISTANCE_TIME"
+  | "TIME"
+  | "WEIGHT_DISTANCE";
+
+export type WeightUnit = "KG" | "LBS";
+
+export type DistanceUnit = "KM" | "MI";
+
+export type Exercise = {
+  id: number;
+  name: string;
+  description: string | null;
+  measurementType: ExerciseMeasurementType;
+};
+
 export async function checkBackend() {
   const response = await fetch(`${API_URL}/api/health`);
 
@@ -12,7 +30,7 @@ export async function checkBackend() {
 
 export async function createUser(
   username: string,
-  password: string
+  password: string,
 ) {
   const response = await fetch(`${API_URL}/api/users`, {
     method: "POST",
@@ -28,7 +46,9 @@ export async function createUser(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Backend returned ${response.status}`);
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
   }
 
   return data;
@@ -36,7 +56,7 @@ export async function createUser(
 
 export async function loginUser(
   username: string,
-  password: string
+  password: string,
 ) {
   const response = await fetch(`${API_URL}/api/login`, {
     method: "POST",
@@ -52,7 +72,9 @@ export async function loginUser(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Backend returned ${response.status}`);
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
   }
 
   return data;
@@ -64,7 +86,9 @@ export async function getUser(userId: number) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Backend returned ${response.status}`);
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
   }
 
   return data;
@@ -76,19 +100,23 @@ export async function getWorkoutTemplates() {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Backend returned ${response.status}`);
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
   }
 
   return data;
 }
 
-export async function getExercises() {
+export async function getExercises(): Promise<Exercise[]> {
   const response = await fetch(`${API_URL}/api/exercises`);
 
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Backend returned ${response.status}`);
+    throw new Error(
+      data.error || `Backend returned ${response.status}`,
+    );
   }
 
   return data;
@@ -97,7 +125,11 @@ export async function getExercises() {
 export async function createWorkout(
   userId: number,
   templateId: number | null,
-  exercises: { exerciseId: number }[],
+  exercises: {
+    exerciseId: number;
+    weightUnit?: WeightUnit;
+    distanceUnit?: DistanceUnit;
+  }[],
 ) {
   const response = await fetch(`${API_URL}/api/workouts`, {
     method: "POST",
@@ -126,10 +158,14 @@ export async function finishWorkout(
   workoutId: number,
   exercises: {
     workoutExerciseId: number;
+    weightUnit?: WeightUnit;
+    distanceUnit?: DistanceUnit;
     sets: {
       setNumber: number;
-      weight: string;
-      reps: string;
+      weight?: number | null;
+      reps?: number | null;
+      distance?: number | null;
+      durationSeconds?: number | null;
     }[];
   }[],
 ) {
@@ -150,7 +186,8 @@ export async function finishWorkout(
 
   if (!response.ok) {
     throw new Error(
-      data.error || `Backend returned ${response.status}`,
+      data.error ||
+        `Backend returned ${response.status}`,
     );
   }
 
@@ -160,6 +197,8 @@ export async function finishWorkout(
 export async function addExerciseToWorkout(
   workoutId: number,
   exerciseId: number,
+  weightUnit: WeightUnit = "KG",
+  distanceUnit: DistanceUnit = "KM",
 ) {
   const response = await fetch(
     `${API_URL}/api/workouts/${workoutId}/exercises`,
@@ -170,6 +209,8 @@ export async function addExerciseToWorkout(
       },
       body: JSON.stringify({
         exerciseId,
+        weightUnit,
+        distanceUnit,
       }),
     },
   );
@@ -261,7 +302,9 @@ export async function getFriends(userId: number) {
   return data;
 }
 
-export async function getFriendRequests(userId: number) {
+export async function getFriendRequests(
+  userId: number,
+) {
   const response = await fetch(
     `${API_URL}/api/friends/${userId}/requests`,
   );
@@ -362,7 +405,9 @@ export async function rejectFriendRequest(
   return data;
 }
 
-export async function getFriendsFeed(userId: number) {
+export async function getFriendsFeed(
+  userId: number,
+) {
   const response = await fetch(
     `${API_URL}/api/friends/${userId}/feed`,
   );
@@ -378,7 +423,9 @@ export async function getFriendsFeed(userId: number) {
   return data;
 }
 
-export async function getPublicUser(userId: number) {
+export async function getPublicUser(
+  userId: number,
+) {
   const response = await fetch(
     `${API_URL}/api/users/${userId}/public`,
   );
@@ -388,6 +435,36 @@ export async function getPublicUser(userId: number) {
   if (!response.ok) {
     throw new Error(
       data.error || `Backend returned ${response.status}`,
+    );
+  }
+
+  return data;
+}
+
+export async function updateWorkoutExerciseSettings(
+  workoutExerciseId: number,
+  settings: {
+    weightUnit?: WeightUnit;
+    distanceUnit?: DistanceUnit;
+  },
+) {
+  const response = await fetch(
+    `${API_URL}/api/workout-exercises/${workoutExerciseId}/settings`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(settings),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        `Backend returned ${response.status}`,
     );
   }
 

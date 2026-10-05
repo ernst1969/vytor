@@ -95,15 +95,11 @@ export default function HomeScreen() {
       const screenHeight =
         Dimensions.get("window").height;
 
-      // Approximate Android keyboard height.
       const keyboardHeight = 300;
 
-      // Visible area above the keyboard.
       const visibleHeight =
         screenHeight - keyboardHeight;
 
-      // Put the focused set around
-      // the middle of the visible area.
       const targetCenter =
         visibleHeight / 2;
 
@@ -153,12 +149,25 @@ export default function HomeScreen() {
                   )
                 }
               >
-                <Text style={styles.exerciseName}>
-                  {String(
-                    exerciseIndex + 1,
-                  ).padStart(2, "0")}{" "}
-                  {exercise.name}
-                </Text>
+                <View style={styles.exerciseHeader}>
+                  <Text style={styles.exerciseName}>
+                    {String(
+                      exerciseIndex + 1,
+                    ).padStart(2, "0")}{" "}
+                    {exercise.name}
+                  </Text>
+
+                  <Pressable
+                    style={styles.exerciseMenuButton}
+                    onPress={() => {
+                      // Placeholder for exercise settings.
+                    }}
+                  >
+                    <Text style={styles.exerciseMenuText}>
+                      ⋮
+                    </Text>
+                  </Pressable>
+                </View>
 
                 <View
                   style={styles.columnHeader}
@@ -337,6 +346,17 @@ export default function HomeScreen() {
               </Text>
             </View>
           )}
+
+          <Pressable
+            style={styles.addExerciseButton}
+            onPress={() =>
+              router.push("/exercise-picker")
+            }
+          >
+            <Text style={styles.addExerciseText}>
+              + ADD EXERCISE
+            </Text>
+          </Pressable>
         </KeyboardAwareScrollView>
       </View>
     );
@@ -425,7 +445,7 @@ const styles = StyleSheet.create({
   workoutContent: {
     paddingHorizontal: 12,
     paddingTop: 14,
-    paddingBottom: 400,
+    paddingBottom: 120,
   },
 
   exerciseCard: {
@@ -437,12 +457,32 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
 
-  exerciseName: {
+  exerciseHeader: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 12,
+  },
+
+  exerciseName: {
+    flex: 1,
     color: Colors.text,
     fontSize: 17,
     fontWeight: "800",
     letterSpacing: 0.5,
+  },
+
+  exerciseMenuButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  exerciseMenuText: {
+    color: Colors.textMuted,
+    fontSize: 25,
+    fontWeight: "900",
+    lineHeight: 25,
   },
 
   columnHeader: {
@@ -558,6 +598,25 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 12,
     fontWeight: "800",
+    letterSpacing: 1,
+  },
+
+  addExerciseButton: {
+    marginTop: 4,
+    marginBottom: 24,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.surface,
+  },
+
+  addExerciseText: {
+    color: Colors.accent,
+    fontSize: 14,
+    fontWeight: "900",
     letterSpacing: 1,
   },
 
