@@ -40,11 +40,14 @@ function AppNavigator() {
 
         try {
           await getUser(userId);
-        } catch {
-          // The local user no longer exists on the server.
-          await AsyncStorage.removeItem("vytor_user_id");
-          router.replace("/create-user");
-          return;
+        } catch (error) {
+          const status = (error as { status?: number }).status;
+
+          if (status === 401 || status === 404) {
+            await AsyncStorage.multiRemove(["vytor_user_id", "vytor_session_token"]);
+            router.replace("/login");
+            return;
+          }
         }
       } finally {
         setCheckingUser(false);

@@ -28,6 +28,8 @@ export const Colors = {
   text: "#E6E2D8",
   textMuted: "#8C8A84",
   accent: "#B87333",
+  tint: "#B87333",
+  card: "#242424",
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;

@@ -23,6 +23,8 @@ type TemplateExercise = {
   exercise: {
     id: number;
     name: string;
+    description?: string | null;
+    measurementType: WorkoutExercise["measurementType"];
   };
 };
 
@@ -34,17 +36,13 @@ type WorkoutTemplate = {
 
 export default function WorkoutSetupScreen() {
   const router = useRouter();
-  const { startWorkout } = useWorkout();
+  const { startWorkout, preferredWeightUnit, preferredDistanceUnit } = useWorkout();
 
   const [templates, setTemplates] = useState<
     WorkoutTemplate[]
   >([]);
 
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadTemplates();
-  }, []);
 
   async function loadTemplates() {
     try {
@@ -60,6 +58,11 @@ export default function WorkoutSetupScreen() {
     }
   }
 
+  useEffect(() => {
+    const timeout = setTimeout(() => void loadTemplates(), 0);
+    return () => clearTimeout(timeout);
+  }, []);
+
   async function startTemplate(
     template: WorkoutTemplate,
   ) {
@@ -70,12 +73,19 @@ export default function WorkoutSetupScreen() {
           id: `exercise-${item.exercise.id}-${Date.now()}-${Math.random()}`,
           exerciseId: item.exercise.id,
           name: item.exercise.name,
+          description: item.exercise.description,
+          measurementType: item.exercise.measurementType,
+          weightUnit: preferredWeightUnit,
+          distanceUnit: preferredDistanceUnit,
           sets: [
             {
               id: `set-${item.exercise.id}-${Date.now()}-${Math.random()}`,
               setNumber: 1,
               weight: "",
               reps: "",
+              distance: "",
+              durationSeconds: "",
+              completed: false,
             },
           ],
         }));

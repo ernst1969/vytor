@@ -19,6 +19,7 @@ import {
   getFriendRequests,
   getFriends,
   getFriendsFeed,
+  rejectFriendRequest,
   searchUsers,
 } from "@/services/api";
 
@@ -44,18 +45,18 @@ type FeedWorkout = {
     id: number;
     name: string;
   } | null;
-  exercises: Array<{
+  exercises: {
     id: number;
     exercise: {
       id: number;
       name: string;
     };
-    sets: Array<{
+    sets: {
       id: number;
       weight: number | null;
       reps: number | null;
-    }>;
-  }>;
+    }[];
+  }[];
 };
 
 function getInitial(username: string) {
@@ -191,7 +192,7 @@ export default function FriendsScreen() {
   );
 
   useEffect(() => {
-    loadData();
+    void Promise.resolve().then(() => loadData());
   }, [loadData]);
 
   async function handleRefresh() {
@@ -248,6 +249,16 @@ export default function FriendsScreen() {
           ? err.message
           : "Failed to accept friend request.",
       );
+    }
+  }
+
+  async function handleRejectRequest(requestId: number) {
+    if (!userId) return;
+    try {
+      await rejectFriendRequest(requestId, userId);
+      await loadData(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reject friend request.");
     }
   }
 
@@ -452,6 +463,13 @@ export default function FriendsScreen() {
                     </Text>
                   </View>
 
+                  <View style={styles.requestActions}>
+                  <Pressable
+                    style={({ pressed }) => [styles.rejectButton, pressed && styles.acceptButtonPressed]}
+                    onPress={() => handleRejectRequest(request.id)}
+                  >
+                    <Text style={styles.rejectButtonText}>Reject</Text>
+                  </Pressable>
                   <Pressable
                     style={({ pressed }) => [
                       styles.acceptButton,
@@ -470,6 +488,7 @@ export default function FriendsScreen() {
                       Accept
                     </Text>
                   </Pressable>
+                  </View>
                 </View>
               ))}
             </View>
@@ -913,7 +932,7 @@ const styles = StyleSheet.create({
 
   username: {
     fontSize: 15,
-    fontWeight: "750",
+    fontWeight: "700",
     color: Colors.text,
   },
 
@@ -1025,6 +1044,10 @@ const styles = StyleSheet.create({
   acceptButtonPressed: {
     opacity: 0.7,
   },
+
+  requestActions: { flexDirection: "row", gap: 8 },
+  rejectButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, borderWidth: 1, borderColor: Colors.border },
+  rejectButtonText: { color: Colors.textMuted, fontSize: 12, fontWeight: "700" },
 
   acceptButtonText: {
     fontSize: 12,

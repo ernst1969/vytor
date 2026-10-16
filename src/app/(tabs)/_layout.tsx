@@ -15,6 +15,7 @@ import { useWorkout } from "@/context/workout-context";
 function WorkoutHeader() {
   const {
     startedAt,
+    cancelActiveWorkout,
     finishWorkout,
     restEndsAt,
   } = useWorkout();
@@ -22,7 +23,7 @@ function WorkoutHeader() {
   const segments = useSegments();
   const insets = useSafeAreaInsets();
 
-  const [now, setNow] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
   const [isFinishing, setIsFinishing] = useState(false);
 
   const isHomeTab =
@@ -30,11 +31,8 @@ function WorkoutHeader() {
 
   useEffect(() => {
     if (!startedAt) {
-      setNow(null);
       return;
     }
-
-    setNow(Date.now());
 
     const interval = setInterval(() => {
       setNow(Date.now());
@@ -66,6 +64,21 @@ function WorkoutHeader() {
     } finally {
       setIsFinishing(false);
     }
+  }
+
+  function handleCancelWorkout() {
+    Alert.alert("Cancel workout", "Discard this active workout?", [
+      { text: "Keep training", style: "cancel" },
+      {
+        text: "Discard",
+        style: "destructive",
+        onPress: () => {
+          void cancelActiveWorkout().catch((error) =>
+            Alert.alert("Could not cancel workout", error instanceof Error ? error.message : "Something went wrong."),
+          );
+        },
+      },
+    ]);
   }
 
   if (!startedAt || now === null) {
@@ -136,7 +149,13 @@ function WorkoutHeader() {
         },
       ]}
     >
-      <View style={styles.headerSide} />
+      <View style={styles.headerSide}>
+        {isHomeTab && (
+          <Pressable onPress={handleCancelWorkout} hitSlop={12}>
+            <Text style={styles.cancelButton}>×</Text>
+          </Pressable>
+        )}
+      </View>
 
       <View style={styles.timerContainer}>
         <Text style={styles.timerLabel}>
@@ -280,5 +299,11 @@ timerLabel: {
 
   checkmarkDisabled: {
     opacity: 0.4,
+  },
+
+  cancelButton: {
+    color: Colors.textMuted,
+    fontSize: 30,
+    fontWeight: "300",
   },
 });

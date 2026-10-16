@@ -1,4 +1,26 @@
-const API_URL = "http://192.168.2.33:3000";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+const SESSION_TOKEN_KEY = "vytor_session_token";
+
+async function fetch(input: string, init: RequestInit = {}) {
+  const token = await AsyncStorage.getItem(SESSION_TOKEN_KEY);
+  const headers = new Headers(init.headers);
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return globalThis.fetch(input, { ...init, headers });
+}
+
+async function storeSession(data: { id: number; token?: string }) {
+  await AsyncStorage.setItem("vytor_user_id", String(data.id));
+
+  if (data.token) {
+    await AsyncStorage.setItem(SESSION_TOKEN_KEY, data.token);
+  }
+}
 
 export type ExerciseMeasurementType =
   | "WEIGHT_REPS"
@@ -46,10 +68,13 @@ export async function createUser(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.error || `Backend returned ${response.status}`,
+    throw Object.assign(
+      new Error(data.error || `Backend returned ${response.status}`),
+      { status: response.status },
     );
   }
+
+  await storeSession(data);
 
   return data;
 }
@@ -77,7 +102,17 @@ export async function loginUser(
     );
   }
 
+  await storeSession(data);
+
   return data;
+}
+
+export async function logoutUser() {
+  try {
+    await fetch(`${API_URL}/api/logout`, { method: "POST" });
+  } finally {
+    await AsyncStorage.multiRemove(["vytor_user_id", SESSION_TOKEN_KEY, "vytor_active_workout"]);
+  }
 }
 
 export async function getUser(userId: number) {
@@ -86,8 +121,9 @@ export async function getUser(userId: number) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.error || `Backend returned ${response.status}`,
+    throw Object.assign(
+      new Error(data.error || `Backend returned ${response.status}`),
+      { status: response.status },
     );
   }
 
@@ -405,6 +441,13 @@ export async function rejectFriendRequest(
   return data;
 }
 
+export async function cancelFriendRequest(requestId: number) {
+  const response = await fetch(`${API_URL}/api/friends/requests/${requestId}`, { method: "DELETE" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
 export async function getFriendsFeed(
   userId: number,
 ) {
@@ -468,5 +511,81 @@ export async function updateWorkoutExerciseSettings(
     );
   }
 
+  return data;
+}
+
+export async function deleteWorkoutExercise(workoutExerciseId: number) {
+  const response = await fetch(`${API_URL}/api/workout-exercises/${workoutExerciseId}`, {
+    method: "DELETE",
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function updateWorkoutExerciseOrder(
+  workoutId: number,
+  exerciseIds: number[],
+) {
+  const response = await fetch(`${API_URL}/api/workouts/${workoutId}/exercises/order`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ exerciseIds }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function getActiveWorkout() {
+  const response = await fetch(`${API_URL}/api/workouts/active/current`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function cancelWorkout(workoutId: number) {
+  const response = await fetch(`${API_URL}/api/workouts/${workoutId}`, { method: "DELETE" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export type UserSettings = {
+  preferredWeightUnit: WeightUnit;
+  preferredDistanceUnit: DistanceUnit;
+  restSeconds: number;
+  theme: "SYSTEM" | "LIGHT" | "DARK";
+};
+
+export async function getSettings(): Promise<UserSettings> {
+  const response = await fetch(`${API_URL}/api/settings`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function updateSettings(settings: Partial<UserSettings>): Promise<UserSettings> {
+  const response = await fetch(`${API_URL}/api/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function getLeaderboard() {
+  const response = await fetch(`${API_URL}/api/leaderboard`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function removeFriend(friendId: number) {
+  const response = await fetch(`${API_URL}/api/friends/${friendId}`, { method: "DELETE" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
   return data;
 }

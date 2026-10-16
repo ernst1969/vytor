@@ -8,10 +8,6 @@
     "scheme": "vytor",
     "userInterfaceStyle": "automatic",
 
-    "ios": {
-      "icon": "./assets/expo.icon"
-    },
-
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {

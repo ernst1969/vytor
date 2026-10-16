@@ -2,11 +2,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import cors from "cors";
+import { createHash, randomBytes } from "node:crypto";
 import "dotenv/config";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+
+import { levelForXp, progressForXp, workoutXp } from "./progression.js";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
@@ -25,6 +28,10 @@ app.use(express.json());
 
 type WeightUnit = "KG" | "LBS";
 type DistanceUnit = "KM" | "MI";
+
+type AuthenticatedRequest = Request & {
+  userId?: number;
+};
 
 // --------------------------------------------------
 // Helpers
@@ -72,6 +79,70 @@ function convertKmToDistanceUnit(
   }
 
   return value;
+}
+
+function hashToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function createSession(userId: number) {
+  const token = randomBytes(32).toString("hex");
+
+  await prisma.session.create({
+    data: {
+      userId,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  return token;
+}
+
+async function requireAuth(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  const authorization = req.header("authorization");
+  const token = authorization?.startsWith("Bearer ")
+    ? authorization.slice(7)
+    : null;
+
+  if (!token) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { tokenHash: hashToken(token) },
+  });
+
+  if (!session || session.expiresAt <= new Date()) {
+    return res.status(401).json({ error: "Session expired" });
+  }
+
+  req.userId = session.userId;
+  next();
+}
+
+function authUserId(req: Request) {
+  return (req as AuthenticatedRequest).userId!;
+}
+
+async function getProgress(userId: number) {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { xp: true },
+  });
+  const rank = await prisma.user.count({
+    where: { xp: { gt: user.xp } },
+  }) + 1;
+  const progress = progressForXp(user.xp);
+
+  return {
+    ...progress,
+    rank,
+  };
 }
 
 // --------------------------------------------------
@@ -142,9 +213,12 @@ app.post("/api/users", async (req, res) => {
       },
     });
 
+    const token = await createSession(user.id);
+
     res.status(201).json({
       id: user.id,
       username: user.username,
+      token,
     });
   } catch (error) {
     console.error(
@@ -201,9 +275,12 @@ app.post("/api/login", async (req, res) => {
       });
     }
 
+    const token = await createSession(user.id);
+
     res.json({
       id: user.id,
       username: user.username,
+      token,
     });
   } catch (error) {
     console.error(
@@ -215,6 +292,89 @@ app.post("/api/login", async (req, res) => {
       error: "Failed to log in",
     });
   }
+});
+
+app.use("/api", requireAuth);
+
+app.post("/api/logout", async (req: AuthenticatedRequest, res) => {
+  const authorization = req.header("authorization");
+  const token = authorization?.slice(7);
+
+  if (token) {
+    await prisma.session.deleteMany({
+      where: { tokenHash: hashToken(token) },
+    });
+  }
+
+  res.json({ success: true });
+});
+
+app.get("/api/leaderboard", async (_req, res) => {
+  const users = await prisma.user.findMany({
+    orderBy: [{ xp: "desc" }, { createdAt: "asc" }],
+    take: 100,
+    select: { id: true, username: true, xp: true },
+  });
+
+  res.json(
+    users.map((user, index) => {
+      const previous = users[index - 1];
+      const rank = previous?.xp === user.xp
+        ? users.findIndex((candidate) => candidate.xp === user.xp) + 1
+        : index + 1;
+      return { ...user, level: levelForXp(user.xp), rank };
+    }),
+  );
+});
+
+app.get("/api/settings", async (req: AuthenticatedRequest, res) => {
+  const settings = await prisma.user.findUnique({
+    where: { id: req.userId! },
+    select: {
+      preferredWeightUnit: true,
+      preferredDistanceUnit: true,
+      restSeconds: true,
+      theme: true,
+    },
+  });
+
+  res.json(settings);
+});
+
+app.patch("/api/settings", async (req: AuthenticatedRequest, res) => {
+  const weightUnit = ["KG", "LBS"].includes(req.body.preferredWeightUnit)
+    ? req.body.preferredWeightUnit
+    : undefined;
+  const distanceUnit = ["KM", "MI"].includes(req.body.preferredDistanceUnit)
+    ? req.body.preferredDistanceUnit
+    : undefined;
+  const theme = ["SYSTEM", "LIGHT", "DARK"].includes(req.body.theme)
+    ? req.body.theme
+    : undefined;
+  const restSeconds = Number(req.body.restSeconds);
+
+  if (req.body.restSeconds !== undefined &&
+      (!Number.isInteger(restSeconds) || restSeconds < 0 || restSeconds > 600)) {
+    return res.status(400).json({ error: "Rest duration must be between 0 and 600 seconds" });
+  }
+
+  const settings = await prisma.user.update({
+    where: { id: req.userId! },
+    data: {
+      ...(weightUnit ? { preferredWeightUnit: weightUnit } : {}),
+      ...(distanceUnit ? { preferredDistanceUnit: distanceUnit } : {}),
+      ...(theme ? { theme } : {}),
+      ...(req.body.restSeconds !== undefined ? { restSeconds } : {}),
+    },
+    select: {
+      preferredWeightUnit: true,
+      preferredDistanceUnit: true,
+      restSeconds: true,
+      theme: true,
+    },
+  });
+
+  res.json(settings);
 });
 
 // --------------------------------------------------
@@ -230,8 +390,7 @@ app.get(
           ? req.query.query.trim()
           : "";
 
-      const currentUserId =
-        Number(req.query.userId);
+      const currentUserId = authUserId(req);
 
       if (!Number.isInteger(currentUserId)) {
         return res.status(400).json({
@@ -310,7 +469,38 @@ app.get(
         });
       }
 
-      res.json(user);
+      const viewerId = (req as AuthenticatedRequest).userId!;
+      const [progress, recentWorkouts, relationship] = await Promise.all([
+        getProgress(userId),
+        prisma.workout.findMany({
+          where: { userId, endedAt: { not: null } },
+          orderBy: { endedAt: "desc" },
+          take: 14,
+          select: { id: true, startedAt: true, endedAt: true },
+        }),
+        prisma.friendRequest.findFirst({
+          where: {
+            OR: [
+              { requesterId: viewerId, recipientId: userId },
+              { requesterId: userId, recipientId: viewerId },
+            ],
+          },
+          select: { id: true, requesterId: true, status: true },
+        }),
+      ]);
+
+      res.json({
+        ...user,
+        ...progress,
+        recentWorkouts,
+        friendship: relationship
+          ? {
+              requestId: relationship.id,
+              status: relationship.status,
+              direction: relationship.requesterId === viewerId ? "OUTGOING" : "INCOMING",
+            }
+          : null,
+      });
     } catch (error) {
       console.error(
         "Failed to load public user:",
@@ -338,6 +528,11 @@ app.get(
         });
       }
 
+
+      if (id !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot access this user" });
+      }
+
       const user =
         await prisma.user.findUnique({
           where: {
@@ -351,9 +546,12 @@ app.get(
         });
       }
 
+      const progress = await getProgress(id);
+
       res.json({
         id: user.id,
         username: user.username,
+        ...progress,
       });
     } catch (error) {
       console.error(
@@ -384,6 +582,11 @@ app.get(
         return res.status(400).json({
           error: "Invalid user ID",
         });
+      }
+
+
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot access these friends" });
       }
 
       const requests =
@@ -450,6 +653,10 @@ app.get(
         });
       }
 
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot access these requests" });
+      }
+
       const requests =
         await prisma.friendRequest.findMany({
           where: {
@@ -511,6 +718,11 @@ app.post(
           error:
             "Valid requesterId and recipientId are required",
         });
+      }
+
+
+      if (requesterId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot send this request" });
       }
 
       if (requesterId === recipientId) {
@@ -656,6 +868,10 @@ app.post(
         });
       }
 
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot accept this request" });
+      }
+
       const request =
         await prisma.friendRequest.findUnique({
           where: {
@@ -736,6 +952,10 @@ app.post(
         });
       }
 
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot reject this request" });
+      }
+
       const request =
         await prisma.friendRequest.findUnique({
           where: {
@@ -786,6 +1006,22 @@ app.post(
   },
 );
 
+app.delete(
+  "/api/friends/requests/:id",
+  async (req: AuthenticatedRequest, res) => {
+    const id = Number(req.params.id);
+    const deleted = await prisma.friendRequest.deleteMany({
+      where: { id, requesterId: req.userId!, status: "PENDING" },
+    });
+
+    if (!deleted.count) {
+      return res.status(404).json({ error: "Outgoing friend request not found" });
+    }
+
+    res.json({ success: true });
+  },
+);
+
 app.get(
   "/api/friends/:userId/feed",
   async (req, res) => {
@@ -798,6 +1034,10 @@ app.get(
         return res.status(400).json({
           error: "Invalid user ID",
         });
+      }
+
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot access this feed" });
       }
 
       const friendships =
@@ -887,6 +1127,29 @@ app.get(
           "Failed to load friends feed",
       });
     }
+  },
+);
+
+app.delete(
+  "/api/friends/:friendId",
+  async (req: AuthenticatedRequest, res) => {
+    const friendId = Number(req.params.friendId);
+
+    if (!Number.isInteger(friendId)) {
+      return res.status(400).json({ error: "Invalid friend ID" });
+    }
+
+    await prisma.friendRequest.deleteMany({
+      where: {
+        status: "ACCEPTED",
+        OR: [
+          { requesterId: req.userId!, recipientId: friendId },
+          { requesterId: friendId, recipientId: req.userId! },
+        ],
+      },
+    });
+
+    res.json({ success: true });
   },
 );
 
@@ -981,6 +1244,10 @@ app.post(
         });
       }
 
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot create this workout" });
+      }
+
       if (
         templateId !== undefined &&
         templateId !== null &&
@@ -1014,6 +1281,16 @@ app.post(
       if (!user) {
         return res.status(404).json({
           error: "User not found",
+        });
+      }
+
+      const activeWorkout = await prisma.workout.findFirst({
+        where: { userId, endedAt: null },
+      });
+
+      if (activeWorkout) {
+        return res.status(409).json({
+          error: "An active workout already exists",
         });
       }
 
@@ -1140,6 +1417,10 @@ app.patch(
         });
       }
 
+      if (existing.workout.userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot update this exercise" });
+      }
+
       if (existing.workout.endedAt) {
         return res.status(400).json({
           error:
@@ -1245,11 +1526,11 @@ app.post(
           },
 
           include: {
-            exercises: true,
+            exercises: { include: { exercise: true } },
           },
         });
 
-      if (!workout) {
+      if (!workout || workout.userId !== (req as AuthenticatedRequest).userId) {
         return res.status(404).json({
           error: "Workout not found",
         });
@@ -1261,6 +1542,15 @@ app.post(
             "Workout has already ended",
         });
       }
+
+      const validatedSets: {
+        workoutExerciseId: number;
+        setNumber: number;
+        weight: number | null;
+        distance: number | null;
+        reps: number | null;
+        durationSeconds: number | null;
+      }[] = [];
 
       for (const exercise of exercises) {
         const workoutExerciseId =
@@ -1472,67 +1762,74 @@ app.post(
             }
           }
 
-          await prisma.workoutSet.upsert({
-            where: {
-              workoutExerciseId_setNumber:
-                {
-                  workoutExerciseId,
-                  setNumber,
-                },
-            },
+          const measurement = workoutExercise.exercise.measurementType;
+          const hasRequiredValues =
+            (measurement === "WEIGHT_REPS" && weight !== null && reps !== null) ||
+            (measurement === "REPS" && reps !== null) ||
+            (measurement === "DISTANCE_TIME" && distance !== null && durationSeconds !== null) ||
+            (measurement === "TIME" && durationSeconds !== null) ||
+            (measurement === "WEIGHT_DISTANCE" && weight !== null && distance !== null);
 
-            update: {
-              weight,
-              distance,
-              reps,
-              durationSeconds,
-            },
+          if (!hasRequiredValues) {
+            return res.status(400).json({ error: `Set ${setNumber} is incomplete` });
+          }
 
-            create: {
-              workoutExerciseId,
-              setNumber,
-              weight,
-              distance,
-              reps,
-              durationSeconds,
-            },
+          validatedSets.push({
+            workoutExerciseId,
+            setNumber,
+            weight,
+            distance,
+            reps,
+            durationSeconds,
           });
         }
       }
 
-      const finishedWorkout =
-        await prisma.workout.update({
-          where: {
-            id: workoutId,
-          },
+      const completedSetCount = validatedSets.length;
+      const earnedXp = workoutXp(completedSetCount);
 
-          data: {
-            endedAt: new Date(),
-          },
+      const finishedWorkout = await prisma.$transaction(async (transaction) => {
+        for (const set of validatedSets) {
+          await transaction.workoutSet.upsert({
+            where: {
+              workoutExerciseId_setNumber: {
+                workoutExerciseId: set.workoutExerciseId,
+                setNumber: set.setNumber,
+              },
+            },
+            update: set,
+            create: set,
+          });
+        }
 
+        const result = await transaction.workout.update({
+          where: { id: workoutId },
+          data: { endedAt: new Date() },
           include: {
             template: true,
-
             exercises: {
-              orderBy: {
-                order: "asc",
-              },
-
+              orderBy: { order: "asc" },
               include: {
                 exercise: true,
-
-                sets: {
-                  orderBy: {
-                    setNumber: "asc",
-                  },
-                },
+                sets: { orderBy: { setNumber: "asc" } },
               },
             },
           },
         });
 
+        await transaction.xpEvent.create({
+          data: { userId: workout.userId, workoutId, points: earnedXp },
+        });
+        await transaction.user.update({
+          where: { id: workout.userId },
+          data: { xp: { increment: earnedXp } },
+        });
+
+        return result;
+      });
+
       return res.json(
-        finishedWorkout,
+        { ...finishedWorkout, earnedXp },
       );
     } catch (error) {
       console.error(
@@ -1611,6 +1908,10 @@ app.post(
         });
       }
 
+      if (workout.userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot update this workout" });
+      }
+
       if (workout.endedAt) {
         return res.status(400).json({
           error:
@@ -1684,6 +1985,88 @@ app.post(
   },
 );
 
+app.delete(
+  "/api/workout-exercises/:id",
+  async (req: AuthenticatedRequest, res) => {
+    const id = Number(req.params.id);
+    const existing = await prisma.workoutExercise.findFirst({
+      where: { id, workout: { userId: req.userId!, endedAt: null } },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Active workout exercise not found" });
+    }
+
+    await prisma.workoutExercise.delete({ where: { id } });
+    res.json({ success: true });
+  },
+);
+
+app.patch(
+  "/api/workouts/:id/exercises/order",
+  async (req: AuthenticatedRequest, res) => {
+    const workoutId = Number(req.params.id);
+    const exerciseIds = req.body.exerciseIds;
+    const workout = await prisma.workout.findFirst({
+      where: { id: workoutId, userId: req.userId!, endedAt: null },
+      include: { exercises: true },
+    });
+
+    if (!workout || !Array.isArray(exerciseIds)) {
+      return res.status(400).json({ error: "Invalid active workout or exercise order" });
+    }
+
+    const currentIds = workout.exercises.map((item) => item.id).sort();
+    const nextIds = exerciseIds.map(Number).sort();
+
+    if (JSON.stringify(currentIds) !== JSON.stringify(nextIds)) {
+      return res.status(400).json({ error: "Exercise order must contain every workout exercise" });
+    }
+
+    await prisma.$transaction(
+      exerciseIds.map((id: number, order: number) =>
+        prisma.workoutExercise.update({ where: { id }, data: { order } }),
+      ),
+    );
+
+    res.json({ success: true });
+  },
+);
+
+app.get(
+  "/api/workouts/active/current",
+  async (req: AuthenticatedRequest, res) => {
+    const workout = await prisma.workout.findFirst({
+      where: { userId: req.userId!, endedAt: null },
+      orderBy: { startedAt: "desc" },
+      include: {
+        exercises: {
+          orderBy: { order: "asc" },
+          include: { exercise: true, sets: { orderBy: { setNumber: "asc" } } },
+        },
+      },
+    });
+
+    res.json(workout);
+  },
+);
+
+app.delete(
+  "/api/workouts/:id",
+  async (req: AuthenticatedRequest, res) => {
+    const id = Number(req.params.id);
+    const deleted = await prisma.workout.deleteMany({
+      where: { id, userId: req.userId!, endedAt: null },
+    });
+
+    if (!deleted.count) {
+      return res.status(404).json({ error: "Active workout not found" });
+    }
+
+    res.json({ success: true });
+  },
+);
+
 // --------------------------------------------------
 // Workout history
 // --------------------------------------------------
@@ -1700,6 +2083,10 @@ app.get(
         return res.status(400).json({
           error: "Invalid user ID",
         });
+      }
+
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot access these workouts" });
       }
 
       const workouts =
@@ -1778,6 +2165,10 @@ app.get(
           error:
             "Invalid exercise ID or user ID",
         });
+      }
+
+      if (userId !== authUserId(req)) {
+        return res.status(403).json({ error: "You cannot access this workout" });
       }
 
       const previousExercise =

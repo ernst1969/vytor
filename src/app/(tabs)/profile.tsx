@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
-import { getUser, getWorkoutHistory } from "@/services/api";
+import { getLeaderboard, getUser, getWorkoutHistory } from "@/services/api";
 
 type WorkoutSet = {
   id: number;
@@ -47,7 +47,14 @@ type Workout = {
 type User = {
   id: number;
   username: string;
+  xp: number;
+  level: number;
+  rank: number;
+  levelStartXp: number;
+  nextLevelXp: number;
 };
+
+type LeaderboardEntry = { id: number; username: string; xp: number; level: number; rank: number };
 
 function formatDate(dateString: string) {
   const date = new Date(dateString);
@@ -140,6 +147,7 @@ export default function ProfileScreen() {
 
   const [user, setUser] = useState<User | null>(null);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -157,9 +165,10 @@ export default function ProfileScreen() {
         throw new Error("No valid logged-in user found.");
       }
 
-      const [userData, workoutData] = await Promise.all([
+      const [userData, workoutData, leaderboardData] = await Promise.all([
         getUser(userId),
         getWorkoutHistory(userId),
+        getLeaderboard(),
       ]);
 
       setUser(userData);
@@ -169,6 +178,7 @@ export default function ProfileScreen() {
           ? workoutData
           : [],
       );
+      setLeaderboard(Array.isArray(leaderboardData) ? leaderboardData.slice(0, 5) : []);
     } catch (err) {
       console.error(
         "Failed to load profile:",
@@ -187,7 +197,7 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
-    loadProfile();
+    void Promise.resolve().then(() => loadProfile());
   }, [loadProfile]);
 
   function handleRefresh() {
@@ -276,7 +286,7 @@ export default function ProfileScreen() {
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>LEVEL</Text>
 
-          <Text style={styles.statValue}>12</Text>
+          <Text style={styles.statValue}>{user.level}</Text>
         </View>
 
         <View style={styles.statDivider} />
@@ -284,7 +294,24 @@ export default function ProfileScreen() {
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>RANK</Text>
 
-          <Text style={styles.statValue}>#42</Text>
+          <Text style={styles.statValue}>#{user.rank}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.xpText}>
+        {user.xp - user.levelStartXp} / {user.nextLevelXp - user.levelStartXp} XP to next level
+      </Text>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>GLOBAL RANKING</Text>
+        <View style={styles.leaderboardCard}>
+          {leaderboard.map((entry) => (
+            <View key={entry.id} style={styles.leaderboardRow}>
+              <Text style={styles.leaderboardRank}>#{entry.rank}</Text>
+              <Text style={styles.leaderboardName}>{entry.username}</Text>
+              <Text style={styles.leaderboardXp}>{entry.xp} XP</Text>
+            </View>
+          ))}
         </View>
       </View>
 
@@ -544,6 +571,33 @@ const styles = StyleSheet.create({
     fontSize: 25,
     fontWeight: "700",
   },
+
+  xpText: {
+    color: Colors.textMuted,
+    textAlign: "center",
+    fontSize: 12,
+    marginTop: -14,
+    marginBottom: 28,
+  },
+
+  leaderboardCard: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+
+  leaderboardRow: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+  },
+
+  leaderboardRank: { width: 42, color: Colors.accent, fontWeight: "800" },
+  leaderboardName: { flex: 1, color: Colors.text, fontWeight: "700" },
+  leaderboardXp: { color: Colors.textMuted, fontSize: 12 },
 
   section: {
     marginBottom: 30,

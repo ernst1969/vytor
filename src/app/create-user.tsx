@@ -58,7 +58,7 @@ const user = await createUser(trimmedUsername, password);
       <Text style={styles.title}>Welcome to Vytor</Text>
 
       <Text style={styles.subtitle}>
-        Let's get you set up before your first workout.
+        Let&apos;s get you set up before your first workout.
       </Text>
 
       <TextInput

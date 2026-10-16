@@ -693,12 +693,12 @@ async function main() {
       },
       update: {
         description: exercise.description,
-        measurementType: exercise.measurement,
+        measurementType: exercise.measurementType,
       },
       create: {
         name: exercise.name,
         description: exercise.description,
-        measurementType: exercise.measurement,
+        measurementType: exercise.measurementType,
       },
     });
   }
@@ -732,9 +732,13 @@ async function main() {
   });
 
   for (let index = 0; index < starterExercises.length; index++) {
+    const exerciseName = starterExercises[index];
+
+    if (!exerciseName) continue;
+
     const exercise = await prisma.exercise.findUnique({
       where: {
-        name: starterExercises[index],
+        name: exerciseName,
       },
     });
 

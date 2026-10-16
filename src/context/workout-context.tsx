@@ -2,15 +2,21 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
 
 import {
   addExerciseToWorkout,
+  cancelWorkout,
   createWorkout,
+  deleteWorkoutExercise,
   finishWorkout as finishWorkoutApi,
+  getActiveWorkout,
+  getSettings,
   getLastExerciseWorkout,
+  updateWorkoutExerciseOrder,
   updateWorkoutExerciseSettings,
   type DistanceUnit,
   type ExerciseMeasurementType,
@@ -59,6 +65,14 @@ type WorkoutContextValue = {
   isActive: boolean;
   exercises: WorkoutExercise[];
   restEndsAt: number | null;
+  restSeconds: number;
+  preferredWeightUnit: WeightUnit;
+  preferredDistanceUnit: DistanceUnit;
+  applySettings: (settings: {
+    preferredWeightUnit: WeightUnit;
+    preferredDistanceUnit: DistanceUnit;
+    restSeconds: number;
+  }) => void;
 
   startWorkout: (
     exercises: WorkoutExercise[],
@@ -66,13 +80,14 @@ type WorkoutContextValue = {
   ) => Promise<void>;
 
   finishWorkout: () => Promise<void>;
+  cancelActiveWorkout: () => Promise<void>;
 
   addSet: (exerciseId: string) => void;
 
   completeSet: (
     exerciseId: string,
     setId: string,
-  ) => void;
+  ) => boolean;
 
   updateSet: (
     exerciseId: string,
@@ -301,6 +316,84 @@ export function WorkoutProvider({
 
   const [restEndsAt, setRestEndsAt] =
     useState<number | null>(null);
+  const [restSeconds, setRestSeconds] = useState(90);
+  const [preferredWeightUnit, setPreferredWeightUnit] = useState<WeightUnit>("KG");
+  const [preferredDistanceUnit, setPreferredDistanceUnit] = useState<DistanceUnit>("KM");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    async function hydrate() {
+      try {
+        const [snapshot, settings, activeWorkout] = await Promise.all([
+          AsyncStorage.getItem("vytor_active_workout"),
+          getSettings().catch(() => null),
+          getActiveWorkout().catch(() => null),
+        ]);
+
+        if (settings) {
+          setRestSeconds(settings.restSeconds);
+          setPreferredWeightUnit(settings.preferredWeightUnit);
+          setPreferredDistanceUnit(settings.preferredDistanceUnit);
+        }
+
+        if (snapshot) {
+          const data = JSON.parse(snapshot) as {
+            startedAt: number;
+            workoutId: number;
+            exercises: WorkoutExercise[];
+            restEndsAt: number | null;
+          };
+          if (activeWorkout?.id === data.workoutId) {
+            setStartedAt(data.startedAt);
+            setWorkoutId(data.workoutId);
+            setExercises(data.exercises.map(normalizeExercise));
+            setRestEndsAt(data.restEndsAt);
+          }
+        } else if (activeWorkout) {
+          setStartedAt(new Date(activeWorkout.startedAt).getTime());
+          setWorkoutId(activeWorkout.id);
+          setExercises(
+            activeWorkout.exercises.map((item: {
+              id: number;
+              weightUnit: WeightUnit;
+              distanceUnit: DistanceUnit;
+              exercise: { id: number; name: string; description: string | null; measurementType: ExerciseMeasurementType };
+            }) => normalizeExercise({
+              id: `exercise-${item.id}`,
+              workoutExerciseId: item.id,
+              exerciseId: item.exercise.id,
+              name: item.exercise.name,
+              description: item.exercise.description,
+              measurementType: item.exercise.measurementType,
+              weightUnit: item.weightUnit,
+              distanceUnit: item.distanceUnit,
+              sets: [{ id: `set-${item.id}-1`, setNumber: 1, weight: "", reps: "", distance: "", durationSeconds: "", completed: false }],
+            })),
+          );
+        }
+      } catch (error) {
+        console.error("Failed to restore active workout:", error);
+      } finally {
+        setHydrated(true);
+      }
+    }
+
+    void hydrate();
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    if (!startedAt || !workoutId) {
+      void AsyncStorage.removeItem("vytor_active_workout");
+      return;
+    }
+
+    void AsyncStorage.setItem(
+      "vytor_active_workout",
+      JSON.stringify({ startedAt, workoutId, exercises, restEndsAt }),
+    );
+  }, [exercises, hydrated, restEndsAt, startedAt, workoutId]);
 
   async function loadPreviousSets(
     exerciseList: WorkoutExercise[],
@@ -333,6 +426,16 @@ export function WorkoutProvider({
         }
       }),
     );
+  }
+
+  function applySettings(settings: {
+    preferredWeightUnit: WeightUnit;
+    preferredDistanceUnit: DistanceUnit;
+    restSeconds: number;
+  }) {
+    setPreferredWeightUnit(settings.preferredWeightUnit);
+    setPreferredDistanceUnit(settings.preferredDistanceUnit);
+    setRestSeconds(settings.restSeconds);
   }
 
   async function startWorkout(
@@ -488,6 +591,14 @@ export function WorkoutProvider({
     }
   }
 
+  async function cancelActiveWorkout() {
+    if (workoutId) await cancelWorkout(workoutId);
+    setStartedAt(null);
+    setExercises([]);
+    setWorkoutId(null);
+    setRestEndsAt(null);
+  }
+
   function addSet(exerciseId: string) {
     setExercises(
       (currentExercises) =>
@@ -528,6 +639,23 @@ export function WorkoutProvider({
     exerciseId: string,
     setId: string,
   ) {
+    const exercise = exercises.find((item) => item.id === exerciseId);
+    const targetSet = exercise?.sets.find((item) => item.id === setId);
+
+    if (!exercise || !targetSet) return false;
+
+    if (!targetSet.completed) {
+      const values = getRelevantSetValues(exercise, targetSet);
+      const valid =
+        (exercise.measurementType === "WEIGHT_REPS" && values.weight !== null && values.reps !== null) ||
+        (exercise.measurementType === "REPS" && values.reps !== null) ||
+        (exercise.measurementType === "DISTANCE_TIME" && values.distance !== null && values.durationSeconds !== null) ||
+        (exercise.measurementType === "TIME" && values.durationSeconds !== null) ||
+        (exercise.measurementType === "WEIGHT_DISTANCE" && values.weight !== null && values.distance !== null);
+
+      if (!valid) return false;
+    }
+
     setExercises(
       (currentExercises) =>
         currentExercises.map(
@@ -556,7 +684,7 @@ export function WorkoutProvider({
                   setRestEndsAt(
                     completed
                       ? Date.now() +
-                          90 * 1000
+                          restSeconds * 1000
                       : null,
                   );
 
@@ -570,6 +698,8 @@ export function WorkoutProvider({
           },
         ),
     );
+
+    return true;
   }
 
   function updateSet(
@@ -738,12 +868,8 @@ export function WorkoutProvider({
       await addExerciseToWorkout(
         workoutId,
         normalized.exerciseId,
-        {
-          weightUnit:
-            normalized.weightUnit,
-          distanceUnit:
-            normalized.distanceUnit,
-        },
+        normalized.weightUnit,
+        normalized.distanceUnit,
       );
 
     const storedUserId =
@@ -793,14 +919,16 @@ export function WorkoutProvider({
   function deleteExercise(
     exerciseId: string,
   ) {
-    setExercises(
-      (current) =>
-        current.filter(
-          (exercise) =>
-            exercise.id !==
-            exerciseId,
-        ),
-    );
+    const exercise = exercises.find((item) => item.id === exerciseId);
+
+    async function remove() {
+      if (exercise?.workoutExerciseId) {
+        await deleteWorkoutExercise(exercise.workoutExerciseId);
+      }
+      setExercises((current) => current.filter((item) => item.id !== exerciseId));
+    }
+
+    void remove().catch((error) => console.error("Failed to delete exercise:", error));
   }
 
   function moveExercise(
@@ -848,6 +976,13 @@ export function WorkoutProvider({
           0,
           movedExercise,
         );
+
+        if (workoutId && reordered.every((item) => item.workoutExerciseId)) {
+          void updateWorkoutExerciseOrder(
+            workoutId,
+            reordered.map((item) => item.workoutExerciseId!),
+          ).catch((error) => console.error("Failed to save exercise order:", error));
+        }
 
         return reordered;
       },
@@ -899,16 +1034,16 @@ export function WorkoutProvider({
       return;
     }
 
+    if (oldExercise.workoutExerciseId) {
+      await deleteWorkoutExercise(oldExercise.workoutExerciseId);
+    }
+
     const databaseExercise =
       await addExerciseToWorkout(
         workoutId,
         normalized.exerciseId,
-        {
-          weightUnit:
-            normalized.weightUnit,
-          distanceUnit:
-            normalized.distanceUnit,
-        },
+        normalized.weightUnit,
+        normalized.distanceUnit,
       );
 
     const storedUserId =
@@ -919,6 +1054,14 @@ export function WorkoutProvider({
     const userId = Number(
       storedUserId,
     );
+
+    const nextOrder = exercises.map((item) =>
+      item.id === exerciseId ? databaseExercise.id : item.workoutExerciseId,
+    );
+
+    if (nextOrder.every((id): id is number => id !== undefined)) {
+      await updateWorkoutExerciseOrder(workoutId, nextOrder);
+    }
 
     let previousSets:
       | PreviousWorkoutSet[]
@@ -977,8 +1120,13 @@ export function WorkoutProvider({
           startedAt !== null,
         exercises,
         restEndsAt,
+        restSeconds,
+        preferredWeightUnit,
+        preferredDistanceUnit,
+        applySettings,
         startWorkout,
         finishWorkout,
+        cancelActiveWorkout,
         addSet,
         completeSet,
         updateSet,

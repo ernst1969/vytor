@@ -13,8 +13,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
 import {
-    getFriends,
+    acceptFriendRequest,
+    cancelFriendRequest,
     getPublicUser,
+    removeFriend,
     sendFriendRequest,
 } from "@/services/api";
 
@@ -22,11 +24,11 @@ type User = {
   id: number;
   username: string;
   createdAt: string;
-};
-
-type Friend = {
-  id: number;
-  username: string;
+  xp: number;
+  level: number;
+  rank: number;
+  recentWorkouts: { id: number; startedAt: string; endedAt: string | null }[];
+  friendship: { requestId: number; status: "PENDING" | "ACCEPTED" | "REJECTED"; direction: "INCOMING" | "OUTGOING" } | null;
 };
 
 function getInitial(username: string) {
@@ -49,6 +51,7 @@ export default function UserProfileScreen() {
 
   const [isFriend, setIsFriend] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
+  const [requestDirection, setRequestDirection] = useState<"INCOMING" | "OUTGOING" | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -75,19 +78,12 @@ export default function UserProfileScreen() {
 
         setCurrentUserId(loggedInUserId);
 
-        const [profile, friends] = await Promise.all([
-          getPublicUser(profileId),
-          getFriends(loggedInUserId),
-        ]);
+        const profile = await getPublicUser(profileId);
 
         setUser(profile);
-
-        setIsFriend(
-          friends.some(
-            (friend: Friend) =>
-              friend.id === profileId,
-          ),
-        );
+        setIsFriend(profile.friendship?.status === "ACCEPTED");
+        setRequestSent(profile.friendship?.status === "PENDING");
+        setRequestDirection(profile.friendship?.direction ?? null);
       } catch (err) {
         console.error(
           "Failed to load user profile:",
@@ -139,6 +135,39 @@ export default function UserProfileScreen() {
           ? err.message
           : "Failed to send friend request.",
       );
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleRemoveFriend() {
+    if (!user || sending) return;
+    try {
+      setSending(true);
+      await removeFriend(user.id);
+      setIsFriend(false);
+      setRequestSent(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove friend.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handlePendingRequest() {
+    if (!user?.friendship || !currentUserId || sending) return;
+    try {
+      setSending(true);
+      if (user.friendship.direction === "INCOMING") {
+        await acceptFriendRequest(user.friendship.requestId, currentUserId);
+        setIsFriend(true);
+      } else {
+        await cancelFriendRequest(user.friendship.requestId);
+      }
+      setRequestSent(false);
+      setRequestDirection(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update friend request.");
     } finally {
       setSending(false);
     }
@@ -234,17 +263,17 @@ export default function UserProfileScreen() {
         {!viewingOwnProfile && (
           <View style={styles.friendAction}>
             {isFriend ? (
-              <View style={styles.friendStatus}>
+              <Pressable style={styles.friendStatus} onPress={handleRemoveFriend}>
                 <Text style={styles.friendStatusText}>
-                  ✓ Friends
+                  ✓ Friends · Remove
                 </Text>
-              </View>
+              </Pressable>
             ) : requestSent ? (
-              <View style={styles.friendStatus}>
+              <Pressable style={styles.friendStatus} onPress={handlePendingRequest}>
                 <Text style={styles.friendStatusText}>
-                  Request Sent
+                  {requestDirection === "INCOMING" ? "Accept Request" : "Request Sent · Cancel"}
                 </Text>
-              </View>
+              </Pressable>
             ) : (
               <Pressable
                 onPress={handleAddFriend}
@@ -288,7 +317,7 @@ export default function UserProfileScreen() {
         <View style={styles.statsCard}>
           <View style={styles.stat}>
             <Text style={styles.statValue}>
-              12
+              {user.level}
             </Text>
 
             <Text style={styles.statLabel}>
@@ -300,7 +329,7 @@ export default function UserProfileScreen() {
 
           <View style={styles.stat}>
             <Text style={styles.statValue}>
-              #42
+              #{user.rank}
             </Text>
 
             <Text style={styles.statLabel}>
@@ -328,22 +357,31 @@ export default function UserProfileScreen() {
               </View>
 
               <Text style={styles.activityCount}>
-                5
+                {user.recentWorkouts.length}
               </Text>
             </View>
 
             <View style={styles.activityGrid}>
               {Array.from({ length: 14 }).map(
-                (_, index) => (
+                (_, index) => {
+                  const date = new Date();
+                  date.setHours(0, 0, 0, 0);
+                  date.setDate(date.getDate() - (13 - index));
+                  const active = user.recentWorkouts.some((workout) => {
+                    const workoutDate = new Date(workout.endedAt ?? workout.startedAt);
+                    return workoutDate.toDateString() === date.toDateString();
+                  });
+                  return (
                   <View
                     key={index}
                     style={[
                       styles.activityDay,
-                      index % 3 !== 0 &&
+                      active &&
                         styles.activityDayActive,
                     ]}
                   />
-                ),
+                  );
+                },
               )}
             </View>
           </View>

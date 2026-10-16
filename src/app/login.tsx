@@ -120,7 +120,7 @@ export default function LoginScreen() {
         style={styles.secondaryButton}
       >
         <Text style={styles.secondaryText}>
-          Don't have an account? Create one
+        Don&apos;t have an account? Create one
         </Text>
       </Pressable>
     </View>

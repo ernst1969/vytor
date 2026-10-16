@@ -2,7 +2,7 @@ import {
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -44,6 +44,8 @@ export default function ExercisePickerScreen() {
 
   const {
     addExercise,
+    preferredDistanceUnit,
+    preferredWeightUnit,
     replaceExercise,
     startWorkout,
   } = useWorkout();
@@ -54,10 +56,7 @@ export default function ExercisePickerScreen() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-
-  useEffect(() => {
-    loadExercises();
-  }, []);
+  const idCounter = useRef(0);
 
   async function loadExercises() {
     try {
@@ -73,20 +72,26 @@ export default function ExercisePickerScreen() {
     }
   }
 
+  useEffect(() => {
+    const timeout = setTimeout(() => void loadExercises(), 0);
+    return () => clearTimeout(timeout);
+  }, []);
+
   function createWorkoutExercise(
     exercise: Exercise,
+    uniqueId: string,
   ): WorkoutExercise {
     return {
-      id: `exercise-${exercise.id}-${Date.now()}-${Math.random()}`,
+      id: `exercise-${exercise.id}-${uniqueId}`,
       exerciseId: exercise.id,
       name: exercise.name,
       description: exercise.description,
       measurementType: exercise.measurementType,
-      weightUnit: "KG",
-      distanceUnit: "KM",
+      weightUnit: preferredWeightUnit,
+      distanceUnit: preferredDistanceUnit,
       sets: [
         {
-          id: `set-${exercise.id}-${Date.now()}-${Math.random()}`,
+          id: `set-${exercise.id}-${uniqueId}`,
           setNumber: 1,
           weight: "",
           reps: "",
@@ -105,8 +110,8 @@ export default function ExercisePickerScreen() {
       return;
     }
 
-    const newExercise =
-      createWorkoutExercise(exercise);
+    idCounter.current += 1;
+    const newExercise = createWorkoutExercise(exercise, String(idCounter.current));
 
     /*
      * REPLACEMENT MODE
