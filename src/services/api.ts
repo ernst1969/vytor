@@ -40,6 +40,19 @@ export type Exercise = {
   measurementType: ExerciseMeasurementType;
 };
 
+export type TemplateExercise = {
+  id: number;
+  order: number;
+  exercise: Exercise;
+};
+
+export type WorkoutTemplate = {
+  id: number;
+  name: string;
+  userId: number | null;
+  exercises: TemplateExercise[];
+};
+
 export async function checkBackend() {
   const response = await fetch(`${API_URL}/api/health`);
 
@@ -130,7 +143,7 @@ export async function getUser(userId: number) {
   return data;
 }
 
-export async function getWorkoutTemplates() {
+export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
   const response = await fetch(`${API_URL}/api/templates`);
 
   const data = await response.json();
@@ -141,6 +154,39 @@ export async function getWorkoutTemplates() {
     );
   }
 
+  return data;
+}
+
+export async function createWorkoutTemplate(name: string, exerciseIds: number[]): Promise<WorkoutTemplate> {
+  const response = await fetch(`${API_URL}/api/templates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, exerciseIds }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function updateWorkoutTemplate(
+  templateId: number,
+  name: string,
+  exerciseIds: number[],
+): Promise<WorkoutTemplate> {
+  const response = await fetch(`${API_URL}/api/templates/${templateId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, exerciseIds }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
+export async function deleteWorkoutTemplate(templateId: number) {
+  const response = await fetch(`${API_URL}/api/templates/${templateId}`, { method: "DELETE" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
   return data;
 }
 

@@ -48,6 +48,7 @@ model User {
   theme                  AppTheme     @default(SYSTEM)
 
   workouts Workout[]
+  workoutTemplates WorkoutTemplate[]
   sessions Session[]
   xpEvents XpEvent[]
 
@@ -82,9 +83,13 @@ model WorkoutTemplate {
   id        Int      @id @default(autoincrement())
   name      String
   createdAt DateTime @default(now())
+  userId    Int?
 
   exercises WorkoutTemplateExercise[]
   workouts  Workout[]
+  user      User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, name])
 }
 
 model WorkoutTemplateExercise {

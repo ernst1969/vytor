@@ -6,6 +6,10 @@ Alle wesentlichen Änderungen an Vytor werden in dieser Datei dokumentiert.
 
 ### Added
 
+- Plattformgerechte Symbole für Home, Freunde, Profil und Einstellungen in der Tab-Leiste.
+- Bestätigungsdialog vor dem Abschließen eines Workouts; Abbrechen bleibt ebenfalls abgesichert.
+- Persönliche Workout-Vorlagen mit Erstellen, Bearbeiten und Löschen.
+- Besitzerzuordnung für persönliche Vorlagen; globale Seed-Vorlagen bleiben schreibgeschützt.
 - Serverseitige 30-Tage-Sessions mit Bearer-Token und Logout.
 - XP-Ereignisse, quadratische Levelkurve und globale Rangliste mit Gleichständen.
 - Profilfortschritt, Top-5-Ranking und echte Aktivitätsdaten auf Freundesprofilen.
@@ -18,6 +22,8 @@ Alle wesentlichen Änderungen an Vytor werden in dieser Datei dokumentiert.
 
 ### Changed
 
+- Der Übungskatalog verwendet passende Messarten: Kampfsport und statische Übungen erfassen Zeit, Cardio Distanz und Zeit, Körpergewichtsübungen Wiederholungen und Carries Gewicht und Distanz.
+- Eine Datenmigration korrigiert Messarten bereits vorhandener Übungen, damit beispielsweise Muay Thai keine Gewichtsangabe mehr anzeigt.
 - Prisma-Schema, Migrationen, Seed und API verwenden einheitliche Mess-, Distanz- und Freundschaftsfelder.
 - Workout-Abschluss speichert Sätze, Abschlusszeit und XP atomar in einer Transaktion.
 - Neue Workouts übernehmen die bevorzugten Einheiten; der Pausentimer nutzt die gespeicherte Dauer.

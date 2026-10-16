@@ -1,7 +1,9 @@
 import { Tabs, useSegments } from "expo-router";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  type ColorValue,
   Pressable,
   StyleSheet,
   Text,
@@ -41,7 +43,7 @@ function WorkoutHeader() {
     return () => clearInterval(interval);
   }, [startedAt, restEndsAt]);
 
-  async function handleFinishWorkout() {
+  async function finishConfirmedWorkout() {
     if (isFinishing) return;
 
     try {
@@ -64,6 +66,22 @@ function WorkoutHeader() {
     } finally {
       setIsFinishing(false);
     }
+  }
+
+  function handleFinishWorkout() {
+    if (isFinishing) return;
+
+    Alert.alert(
+      "Finish workout?",
+      "Completed sets will be saved and count toward your progress.",
+      [
+        { text: "Keep training", style: "cancel" },
+        {
+          text: "Finish",
+          onPress: () => void finishConfirmedWorkout(),
+        },
+      ],
+    );
   }
 
   function handleCancelWorkout() {
@@ -191,6 +209,12 @@ function WorkoutHeader() {
   );
 }
 
+type TabIconName = SymbolViewProps["name"];
+
+function TabIcon({ name, color, size }: { name: TabIconName; color: ColorValue; size: number }) {
+  return <SymbolView name={name} tintColor={color} size={size} />;
+}
+
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
 
@@ -216,6 +240,9 @@ export default function TabLayout() {
           name="index"
           options={{
             title: "Home",
+            tabBarIcon: ({ color, size }) => (
+              <TabIcon name={{ ios: "house.fill", android: "home", web: "home" }} color={color} size={size} />
+            ),
           }}
         />
 
@@ -223,6 +250,9 @@ export default function TabLayout() {
           name="friends"
           options={{
             title: "Friends",
+            tabBarIcon: ({ color, size }) => (
+              <TabIcon name={{ ios: "person.2.fill", android: "groups", web: "groups" }} color={color} size={size} />
+            ),
           }}
         />
 
@@ -230,6 +260,9 @@ export default function TabLayout() {
           name="profile"
           options={{
             title: "Profile",
+            tabBarIcon: ({ color, size }) => (
+              <TabIcon name={{ ios: "person.crop.circle.fill", android: "account_circle", web: "account_circle" }} color={color} size={size} />
+            ),
           }}
         />
 
@@ -237,6 +270,9 @@ export default function TabLayout() {
           name="settings"
           options={{
             title: "Settings",
+            tabBarIcon: ({ color, size }) => (
+              <TabIcon name={{ ios: "gearshape.fill", android: "settings", web: "settings" }} color={color} size={size} />
+            ),
           }}
         />
       </Tabs>

@@ -1189,10 +1189,13 @@ app.get(
 
 app.get(
   "/api/templates",
-  async (_req, res) => {
+  async (req, res) => {
     try {
       const templates =
         await prisma.workoutTemplate.findMany({
+          where: {
+            OR: [{ userId: null }, { userId: authUserId(req) }],
+          },
           orderBy: {
             name: "asc",
           },
@@ -1222,6 +1225,118 @@ app.get(
     }
   },
 );
+
+app.post("/api/templates", async (req, res) => {
+  try {
+    const { name, exerciseIds } = req.body;
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+
+    if (!trimmedName) {
+      return res.status(400).json({ error: "Template name is required" });
+    }
+
+    if (!Array.isArray(exerciseIds) || exerciseIds.length === 0) {
+      return res.status(400).json({ error: "Select at least one exercise" });
+    }
+
+    const uniqueIds = [...new Set(exerciseIds.map(Number))];
+    if (uniqueIds.some((id) => !Number.isInteger(id))) {
+      return res.status(400).json({ error: "Invalid exercise ID" });
+    }
+
+    const count = await prisma.exercise.count({ where: { id: { in: uniqueIds } } });
+    if (count !== uniqueIds.length) {
+      return res.status(400).json({ error: "One or more exercises do not exist" });
+    }
+
+    const template = await prisma.workoutTemplate.create({
+      data: {
+        name: trimmedName,
+        userId: authUserId(req),
+        exercises: {
+          create: uniqueIds.map((exerciseId, order) => ({ exerciseId, order })),
+        },
+      },
+      include: {
+        exercises: { orderBy: { order: "asc" }, include: { exercise: true } },
+      },
+    });
+
+    res.status(201).json(template);
+  } catch (error) {
+    console.error("Failed to create workout template:", error);
+    res.status(500).json({ error: "Failed to create workout template" });
+  }
+});
+
+app.put("/api/templates/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { name, exerciseIds } = req.body;
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+
+    if (!Number.isInteger(id) || !trimmedName || !Array.isArray(exerciseIds) || exerciseIds.length === 0) {
+      return res.status(400).json({ error: "Name and at least one exercise are required" });
+    }
+
+    const existing = await prisma.workoutTemplate.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "Template not found" });
+    if (existing.userId !== authUserId(req)) {
+      return res.status(403).json({ error: "Only personal templates can be edited" });
+    }
+
+    const uniqueIds = [...new Set(exerciseIds.map(Number))];
+    if (uniqueIds.some((exerciseId) => !Number.isInteger(exerciseId))) {
+      return res.status(400).json({ error: "Invalid exercise ID" });
+    }
+
+    const count = await prisma.exercise.count({ where: { id: { in: uniqueIds } } });
+    if (count !== uniqueIds.length) {
+      return res.status(400).json({ error: "One or more exercises do not exist" });
+    }
+
+    const template = await prisma.$transaction(async (tx) => {
+      await tx.workoutTemplateExercise.deleteMany({ where: { templateId: id } });
+      return tx.workoutTemplate.update({
+        where: { id },
+        data: {
+          name: trimmedName,
+          exercises: { create: uniqueIds.map((exerciseId, order) => ({ exerciseId, order })) },
+        },
+        include: {
+          exercises: { orderBy: { order: "asc" }, include: { exercise: true } },
+        },
+      });
+    });
+
+    res.json(template);
+  } catch (error) {
+    console.error("Failed to update workout template:", error);
+    res.status(500).json({ error: "Failed to update workout template" });
+  }
+});
+
+app.delete("/api/templates/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid template ID" });
+
+    const existing = await prisma.workoutTemplate.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "Template not found" });
+    if (existing.userId !== authUserId(req)) {
+      return res.status(403).json({ error: "Only personal templates can be deleted" });
+    }
+
+    await prisma.$transaction([
+      prisma.workout.updateMany({ where: { templateId: id }, data: { templateId: null } }),
+      prisma.workoutTemplate.delete({ where: { id } }),
+    ]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete workout template:", error);
+    res.status(500).json({ error: "Failed to delete workout template" });
+  }
+});
 
 // --------------------------------------------------
 // Create workout

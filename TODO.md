@@ -20,11 +20,14 @@ Diese Liste basiert auf dem untersuchten Stand vom 16. Oktober 2026. Sie ist bew
 - [x] **Rank-System implementieren:** globales XP-Ranking mit Gleichständen, API-Endpunkt und Top-5-Profilansicht ersetzen die bisherigen Attrappen.
 - [x] **Freunde-System abschließen:** Anfrage senden, annehmen, ablehnen und zurückziehen sowie Freund entfernen sind angebunden; Profile verwenden echten Status und echte Trainingsaktivität.
 - [x] **Settings ausbauen:** Gewichts-/Distanzeinheit, Standard-Pausendauer und Darstellungspräferenz werden serverseitig gespeichert; Einheiten und Pausendauer wirken auf neue Workouts. Logout beendet die Server-Session.
+- [x] **Workout-Bedienung vervollständigen:** Die Tab-Leiste besitzt plattformgerechte Symbole und vor dem Abschluss oder Verwerfen eines Workouts erscheint eine Bestätigung.
+- [x] **Workout-Vorlagen verwalten:** Persönliche Vorlagen können erstellt, bearbeitet und gelöscht werden; die globale Starter-Vorlage bleibt schreibgeschützt.
+- [x] **Übungs-Messarten korrigieren:** Kraft-, Körpergewichts-, Zeit-, Distanz-/Zeit- und Gewicht-/Distanzübungen verwenden passende Eingabefelder; bestehende Daten werden per Migration berichtigt.
 - [ ] **Account- und Theme-Finish:** gespeicherte LIGHT/DARK/SYSTEM-Präferenz auf alle noch fest eingefärbten Screens anwenden sowie Passwortänderung und Kontolöschung ergänzen.
 
 ## P3 – Konfiguration und Qualität
 
 - [x] **Umgebung konfigurierbar machen:** API-Adresse und Server-Port kommen aus dokumentierten Umgebungsvariablen; sichere Beispieldateien sind vorhanden.
 - [x] **Automatisierte Kernlogik testen:** Levelgrenzen, Fortschrittsbereiche und Workout-XP werden mit dem Node-Test-Runner geprüft.
-- [ ] **Endgeräte- und Datenbankprüfung:** Migration auf einer echten PostgreSQL-Testdatenbank sowie Registrierung/Login, Workout- und Freundesabläufe auf iOS, Android und Web ausführen.
+- [ ] **Endgeräteprüfung:** Registrierung/Login, Workout-, Vorlagen- und Freundesabläufe auf iOS, Android und Web vollständig ausführen.
 

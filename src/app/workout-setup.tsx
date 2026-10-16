@@ -1,7 +1,8 @@
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -15,24 +16,11 @@ import {
     useWorkout,
     type WorkoutExercise,
 } from "@/context/workout-context";
-import { getWorkoutTemplates } from "@/services/api";
-
-type TemplateExercise = {
-  id: number;
-  order: number;
-  exercise: {
-    id: number;
-    name: string;
-    description?: string | null;
-    measurementType: WorkoutExercise["measurementType"];
-  };
-};
-
-type WorkoutTemplate = {
-  id: number;
-  name: string;
-  exercises: TemplateExercise[];
-};
+import {
+  deleteWorkoutTemplate,
+  getWorkoutTemplates,
+  type WorkoutTemplate,
+} from "@/services/api";
 
 export default function WorkoutSetupScreen() {
   const router = useRouter();
@@ -58,10 +46,12 @@ export default function WorkoutSetupScreen() {
     }
   }
 
-  useEffect(() => {
-    const timeout = setTimeout(() => void loadTemplates(), 0);
-    return () => clearTimeout(timeout);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      void loadTemplates();
+    }, []),
+  );
 
   async function startTemplate(
     template: WorkoutTemplate,
@@ -107,6 +97,24 @@ export default function WorkoutSetupScreen() {
 
   function startFreestyle() {
     router.push("/exercise-picker?mode=freestyle");
+  }
+
+  function confirmDelete(template: WorkoutTemplate) {
+    Alert.alert("Delete template?", `Delete “${template.name}”?`, [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deleteWorkoutTemplate(template.id)
+            .then(loadTemplates)
+            .catch((error) => Alert.alert(
+              "Could not delete template",
+              error instanceof Error ? error.message : "Something went wrong.",
+            ));
+        },
+      },
+    ]);
   }
 
   if (loading) {
@@ -175,15 +183,22 @@ export default function WorkoutSetupScreen() {
             TEMPLATES
           </Text>
 
+          <Pressable
+            style={styles.createButton}
+            onPress={() => router.push("/template-editor")}
+          >
+            <Text style={styles.createButtonText}>+ CREATE TEMPLATE</Text>
+          </Pressable>
+
           {templates.map((template) => (
-            <Pressable
+            <View
               key={template.id}
               style={styles.templateCard}
-              onPress={() =>
-                startTemplate(template)
-              }
             >
-              <View style={styles.templateInfo}>
+              <Pressable
+                style={styles.templateInfo}
+                onPress={() => startTemplate(template)}
+              >
                 <Text style={styles.cardTitle}>
                   {template.name}
                 </Text>
@@ -203,10 +218,27 @@ export default function WorkoutSetupScreen() {
                     )
                     .join("  •  ")}
                 </Text>
-              </View>
+              </Pressable>
 
-              <Text style={styles.arrow}>→</Text>
-            </Pressable>
+              <View style={styles.templateActions}>
+                {template.userId !== null && (
+                  <>
+                    <Pressable
+                      style={styles.actionButton}
+                      onPress={() => router.push({ pathname: "/template-editor", params: { templateId: template.id } })}
+                    >
+                      <Text style={styles.actionText}>EDIT</Text>
+                    </Pressable>
+                    <Pressable style={styles.actionButton} onPress={() => confirmDelete(template)}>
+                      <Text style={styles.deleteText}>DELETE</Text>
+                    </Pressable>
+                  </>
+                )}
+                <Pressable style={styles.startTemplateButton} onPress={() => startTemplate(template)}>
+                  <Text style={styles.arrow}>→</Text>
+                </Pressable>
+              </View>
+            </View>
           ))}
         </ScrollView>
       </View>
@@ -316,6 +348,39 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 12,
   },
+
+  createButton: {
+    minHeight: 48,
+    marginBottom: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    borderRadius: 7,
+  },
+
+  createButtonText: {
+    color: Colors.accent,
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+
+  templateActions: {
+    alignItems: "flex-end",
+    gap: 3,
+  },
+
+  actionButton: {
+    minWidth: 54,
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  actionText: { color: Colors.textMuted, fontSize: 10, fontWeight: "800" },
+  deleteText: { color: "#D46A6A", fontSize: 10, fontWeight: "800" },
+  startTemplateButton: { minWidth: 54, minHeight: 34, alignItems: "center", justifyContent: "center" },
 
   cardTitle: {
     color: Colors.text,
