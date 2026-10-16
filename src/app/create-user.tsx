@@ -1,9 +1,9 @@
+import { useAppDialog } from "@/context/dialog-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
     ActivityIndicator,
-    Alert,
     Pressable,
     StyleSheet,
     Text,
@@ -12,10 +12,14 @@ import {
 } from "react-native";
 
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import { createUser } from "@/services/api";
 
 export default function CreateUserScreen() {
+  const { alert } = useAppDialog();
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
   const [password, setPassword] = useState("");
 
@@ -26,7 +30,7 @@ export default function CreateUserScreen() {
     const trimmedUsername = username.trim();
 
     if (trimmedUsername.length < 2) {
-      Alert.alert(
+      alert(
         "Username too short",
         "Your username needs to be at least 2 characters."
       );
@@ -42,7 +46,7 @@ const user = await createUser(trimmedUsername, password);
 
       router.replace("/(tabs)");
     } catch (error) {
-      Alert.alert(
+      alert(
         "Could not create user",
         error instanceof Error
           ? error.message
@@ -114,7 +118,7 @@ const user = await createUser(trimmedUsername, password);
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: "center",

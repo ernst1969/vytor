@@ -1,13 +1,19 @@
+import { draftSignature, recoverySource } from "@/utils/recovery";
+import { useAppTheme } from "@/context/theme-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   createContext,
   useContext,
   useEffect,
   useState,
+  useRef,
   type ReactNode,
 } from "react";
 
 import {
+  request,
+  onSessionChange,
+  saveWorkoutDraft,
   addExerciseToWorkout,
   cancelWorkout,
   createWorkout,
@@ -17,7 +23,6 @@ import {
   getSettings,
   getLastExerciseWorkout,
   updateWorkoutExerciseOrder,
-  updateWorkoutExerciseSettings,
   type DistanceUnit,
   type ExerciseMeasurementType,
   type WeightUnit,
@@ -33,6 +38,7 @@ export type WorkoutSet = {
   durationSeconds: string;
   completed: boolean;
   setType: WorkoutSetType;
+  targetReps?: string;
 };
 
 export type PreviousWorkoutSet = {
@@ -52,6 +58,7 @@ export type WorkoutExercise = {
   weightUnit: WeightUnit;
   distanceUnit: DistanceUnit;
   restSeconds?: number;
+  notes?: string;
   sets: WorkoutSet[];
   workoutExerciseId?: number;
   previousSets?: PreviousWorkoutSet[];
@@ -61,9 +68,17 @@ type UpdateSetField =
   | "weight"
   | "reps"
   | "distance"
-  | "durationSeconds";
+  | "durationSeconds"
+  | "targetReps";
 
 type WorkoutContextValue = {
+  notes: string;
+  setNotes: (notes: string) => void;
+  syncStatus: string;
+  reloadActiveWorkout: () => Promise<void>;
+  updateExerciseNotes: (id: string, notes: string) => void;
+  setTimer: (seconds: number) => void;
+  savePreset: () => Promise<void>;
   startedAt: number | null;
   isActive: boolean;
   exercises: WorkoutExercise[];
@@ -82,10 +97,10 @@ type WorkoutContextValue = {
     templateId?: number | null,
   ) => Promise<void>;
 
-  finishWorkout: () => Promise<void>;
+  finishWorkout: () => Promise<number | undefined>;
   cancelActiveWorkout: () => Promise<void>;
 
-  addSet: (exerciseId: string) => void;
+  addSet: (exerciseId: string, afterId?: string) => void;
   deleteSet: (exerciseId: string, setId: string) => void;
   setSetType: (exerciseId: string, setId: string, type: WorkoutSetType) => void;
   addDropSet: (exerciseId: string, setId: string) => void;
@@ -119,12 +134,12 @@ type WorkoutContextValue = {
 
   deleteExercise: (
     exerciseId: string,
-  ) => void;
+  ) => Promise<void>;
 
   moveExercise: (
     exerciseId: string,
     direction: "up" | "down",
-  ) => void;
+  ) => Promise<void>;
 
   replaceExercise: (
     exerciseId: string,
@@ -199,19 +214,19 @@ function convertDistance(
 }
 
 function stringToNumber(value: string) {
-  if (!value) {
+  if (!value.trim()) {
     return null;
   }
 
   const number = Number(value);
 
-  return Number.isFinite(number)
+  return Number.isFinite(number) && number >= 0
     ? number
     : null;
 }
 
 function stringToInteger(value: string) {
-  if (!value) {
+  if (!value.trim()) {
     return null;
   }
 
@@ -221,10 +236,7 @@ function stringToInteger(value: string) {
     return null;
   }
 
-  return Math.max(
-    0,
-    Math.round(number),
-  );
+  return Number.isInteger(number) && number >= 0 ? number : null;
 }
 
 function normalizeExercise(
@@ -313,6 +325,9 @@ export function WorkoutProvider({
 }: {
   children: ReactNode;
 }) {
+  const { setPreference } = useAppTheme();
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [sessionVersion, setSessionVersion] = useState(0);
   const [startedAt, setStartedAt] =
     useState<number | null>(null);
 
@@ -328,90 +343,120 @@ export function WorkoutProvider({
   const [preferredWeightUnit, setPreferredWeightUnit] = useState<WeightUnit>("KG");
   const [preferredDistanceUnit, setPreferredDistanceUnit] = useState<DistanceUnit>("KM");
   const [hydrated, setHydrated] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [syncStatus, setSyncStatus] = useState("Saved");
+  const revision = useRef(0);
+  const syncing = useRef(false);
+  const latestDraft = useRef({ exercises, restEndsAt });
+  const syncedDraft = useRef("");
+  useEffect(() => onSessionChange(() => { setHydrated(false); setStartedAt(null); setWorkoutId(null); setExercises([]); setNotes(""); revision.current = 0; syncedDraft.current = ""; setSessionVersion((value) => value + 1); }), []);
+  latestDraft.current = { exercises, restEndsAt };
+
+  async function reloadActiveWorkout(preserveLocal = false) {
+    const account = await AsyncStorage.getItem("vytor_user_id");
+    const snapshot = preserveLocal && account ? await AsyncStorage.getItem(`vytor_active_workout_${account}`) : null;
+    const active = await getActiveWorkout();
+    if (account !== await AsyncStorage.getItem("vytor_user_id")) return;
+    if (!active) { setStartedAt(null); setWorkoutId(null); setExercises([]); return; }
+    revision.current = active.revision;
+    setNotes(active.notes ?? "");
+    setWorkoutId(active.id);
+    setStartedAt(new Date(active.startedAt).getTime());
+    const serverExercises: WorkoutExercise[] = active.exercises.map((item: any) => {
+      const saved = active.draft?.exercises?.find((entry: WorkoutExercise) => entry.workoutExerciseId === item.id);
+      return saved ? normalizeExercise({ ...saved, exerciseId: item.exercise.id, name: item.exercise.name, description: item.exercise.description, measurementType: item.exercise.measurementType, weightUnit: item.weightUnit, distanceUnit: item.distanceUnit, restSeconds: item.restSeconds ?? saved.restSeconds }) : normalizeExercise({
+        id: `exercise-${item.id}`, workoutExerciseId: item.id, exerciseId: item.exercise.id,
+        name: item.exercise.name, description: item.exercise.description, measurementType: item.exercise.measurementType,
+        weightUnit: item.weightUnit, distanceUnit: item.distanceUnit, restSeconds: item.restSeconds ?? undefined,
+        sets: [{ id: `set-${item.id}-1`, setNumber: 1, weight: "", reps: "", distance: "", durationSeconds: "", completed: false, setType: "REGULAR" }],
+      });
+    });
+    let local = null;
+    try { local = snapshot ? JSON.parse(snapshot) : null; } catch { /* Corrupt cache is ignored. */ }
+    const source = recoverySource(active, local);
+    if ((source === "local" || source === "conflict") && local) {
+      setExercises(local.exercises.map(normalizeExercise)); setNotes(local.notes ?? ""); setRestEndsAt(local.restEndsAt ?? null);
+      syncedDraft.current = local.syncedSignature ?? "";
+      setSyncStatus(source === "conflict" ? "Conflict: reload required" : "Offline changes ready to sync");
+      return;
+    }
+    setExercises(serverExercises);
+    setRestEndsAt(active.draft?.restEndsAt ?? null);
+    syncedDraft.current = JSON.stringify({ exercises: serverExercises, restEndsAt: active.draft?.restEndsAt ?? null, notes: active.notes ?? "" });
+    setSyncStatus("Saved");
+  }
+
+  async function savePreset() {
+    const { createWorkoutTemplate } = await import("@/services/api");
+    await createWorkoutTemplate(`Workout ${new Date().toLocaleDateString()}`, exercises.map((item) => item.exerciseId), Object.fromEntries(exercises.map((item) => [String(item.exerciseId), { targetReps: item.sets.map((set) => Number(set.targetReps || set.reps) || 0), setTypes: item.sets.map((set) => set.setType), notes: item.notes, restSeconds: item.restSeconds, weightUnit: item.weightUnit, distanceUnit: item.distanceUnit }])));
+  }
+
+  function updateExerciseNotes(id: string, value: string) {
+    setExercises((items) => items.map((item) => item.id === id ? { ...item, notes: value } : item));
+  }
+  function setTimer(seconds: number) { setRestEndsAt(seconds ? Date.now() + seconds * 1000 : null); }
+
+  useEffect(() => {
+    if (!hydrated || !workoutId) return;
+    let disposed = false;
+    async function sync() {
+      const signature = draftSignature({ ...latestDraft.current, notes });
+      if (disposed || syncing.current || syncStatus.startsWith("Conflict") || signature === syncedDraft.current) return;
+      syncing.current = true;
+      const syncAccount = accountId;
+      try {
+        setSyncStatus("Syncing…");
+        const result = await saveWorkoutDraft(workoutId!, revision.current, latestDraft.current, notes);
+        if (syncAccount !== await AsyncStorage.getItem("vytor_user_id")) return;
+        revision.current = result.revision;
+        syncedDraft.current = signature;
+        if (!disposed) setSyncStatus("Saved");
+        if (syncAccount && syncAccount === await AsyncStorage.getItem("vytor_user_id")) await AsyncStorage.mergeItem(`vytor_active_workout_${syncAccount}`, JSON.stringify({ revision: result.revision, syncedSignature: signature }));
+      } catch (error) {
+        if (!disposed) setSyncStatus([404, 409].includes((error as { status?: number }).status ?? 0) ? "Conflict: reload required" : "Offline: saved on this device");
+      } finally { syncing.current = false; }
+    }
+    const timeout = setTimeout(() => void sync(), 800);
+    const retry = setInterval(() => void sync(), 15000);
+    return () => { disposed = true; clearTimeout(timeout); clearInterval(retry); };
+  // The current draft changes initiate synchronization; retries handle reconnects.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercises, restEndsAt, notes, hydrated, workoutId, syncStatus.startsWith("Conflict")]);
 
   useEffect(() => {
     async function hydrate() {
+      const userId = await AsyncStorage.getItem("vytor_user_id");
+      setAccountId(userId);
+      if (!userId) { setHydrated(true); return; }
       try {
-        const [snapshot, settings, activeWorkout] = await Promise.all([
-          AsyncStorage.getItem("vytor_active_workout"),
-          getSettings().catch(() => null),
-          getActiveWorkout().catch(() => null),
-        ]);
-
-        if (settings) {
-          setRestSeconds(settings.restSeconds);
-          setPreferredWeightUnit(settings.preferredWeightUnit);
-          setPreferredDistanceUnit(settings.preferredDistanceUnit);
-        }
-
-        let restoredSnapshot = false;
-        if (snapshot && activeWorkout) {
+        const settings = await getSettings();
+        applySettings(settings);
+        setPreference(settings.theme);
+        await reloadActiveWorkout(true);
+      } catch {
+        const snapshot = await AsyncStorage.getItem(`vytor_active_workout_${userId}`);
+        if (snapshot) {
           try {
-            const data = JSON.parse(snapshot) as {
-              startedAt: number;
-              workoutId: number;
-              exercises: WorkoutExercise[];
-              restEndsAt: number | null;
-            };
-            if (activeWorkout.id === data.workoutId && Array.isArray(data.exercises)) {
-              setStartedAt(data.startedAt);
-              setWorkoutId(data.workoutId);
-              setExercises(data.exercises.map(normalizeExercise));
-              setRestEndsAt(data.restEndsAt);
-              restoredSnapshot = true;
-            }
-          } catch {
-            await AsyncStorage.removeItem("vytor_active_workout");
-          }
+            const data = JSON.parse(snapshot);
+            setStartedAt(data.startedAt); setWorkoutId(data.workoutId);
+            setExercises(data.exercises.map(normalizeExercise)); setRestEndsAt(data.restEndsAt);
+            setNotes(data.notes ?? ""); revision.current = data.revision ?? 0;
+            setSyncStatus("Offline: saved on this device");
+          } catch { /* Invalid cache is ignored. */ }
         }
-
-        if (!restoredSnapshot && activeWorkout) {
-          setStartedAt(new Date(activeWorkout.startedAt).getTime());
-          setWorkoutId(activeWorkout.id);
-          setExercises(
-            activeWorkout.exercises.map((item: {
-              id: number;
-              weightUnit: WeightUnit;
-              distanceUnit: DistanceUnit;
-              restSeconds: number | null;
-              exercise: { id: number; name: string; description: string | null; measurementType: ExerciseMeasurementType };
-            }) => normalizeExercise({
-              id: `exercise-${item.id}`,
-              workoutExerciseId: item.id,
-              exerciseId: item.exercise.id,
-              name: item.exercise.name,
-              description: item.exercise.description,
-              measurementType: item.exercise.measurementType,
-              weightUnit: item.weightUnit,
-              distanceUnit: item.distanceUnit,
-              restSeconds: item.restSeconds ?? undefined,
-              sets: [{ id: `set-${item.id}-1`, setNumber: 1, weight: "", reps: "", distance: "", durationSeconds: "", completed: false, setType: "REGULAR" }],
-            })),
-          );
-        }
-      } catch (error) {
-        console.error("Failed to restore active workout:", error);
-      } finally {
-        setHydrated(true);
-      }
+      } finally { setHydrated(true); }
     }
-
     void hydrate();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionVersion]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !accountId) return;
+    const key = `vytor_active_workout_${accountId}`;
+    if (!startedAt || !workoutId) { void AsyncStorage.removeItem(key); return; }
+    void AsyncStorage.setItem(key, JSON.stringify({ startedAt, workoutId, exercises, restEndsAt, notes, revision: revision.current, syncedSignature: syncedDraft.current }));
+  }, [exercises, hydrated, restEndsAt, startedAt, workoutId, notes, accountId]);
 
-    if (!startedAt || !workoutId) {
-      void AsyncStorage.removeItem("vytor_active_workout");
-      return;
-    }
-
-    void AsyncStorage.setItem(
-      "vytor_active_workout",
-      JSON.stringify({ startedAt, workoutId, exercises, restEndsAt }),
-    );
-  }, [exercises, hydrated, restEndsAt, startedAt, workoutId]);
 
   async function loadPreviousSets(
     exerciseList: WorkoutExercise[],
@@ -428,6 +473,7 @@ export function WorkoutProvider({
 
           return {
             ...exercise,
+            sets: exercise.sets.map((set, index) => ({ ...set, targetReps: set.targetReps || (previous?.sets?.[index]?.reps ? String(previous.sets[index].reps) : "") })),
             previousSets:
               previous?.sets ?? [],
           };
@@ -504,10 +550,10 @@ export function WorkoutProvider({
 
       const exercisesWithIds =
         normalizedExercises.map(
-          (exercise, index) => ({
+          (exercise) => ({
             ...exercise,
             workoutExerciseId:
-              databaseExercises[index]?.id,
+              databaseExercises.find((item: { exerciseId: number }) => item.exerciseId === exercise.exerciseId)?.id,
           }),
         );
 
@@ -521,6 +567,9 @@ export function WorkoutProvider({
         exercisesWithPreviousData,
       );
 
+      revision.current = workout.revision ?? 0;
+      setNotes("");
+      setSyncStatus("Saved");
       setWorkoutId(workout.id);
       setRestEndsAt(null);
       setStartedAt(Date.now());
@@ -530,6 +579,7 @@ export function WorkoutProvider({
         error,
       );
 
+      if ((error as { status?: number }).status === 409) { await reloadActiveWorkout(); return; }
       throw error;
     }
   }
@@ -542,7 +592,12 @@ export function WorkoutProvider({
       return;
     }
 
+    if (syncing.current) throw new Error("Workout is syncing. Please try again in a moment.");
+    if (syncStatus.startsWith("Conflict")) throw new Error("Resolve the device conflict before finishing.");
+    syncing.current = true;
     try {
+      const saved = await saveWorkoutDraft(workoutId, revision.current, { exercises, restEndsAt }, notes);
+      revision.current = saved.revision;
       const workoutExercises =
         exercises
           .filter(
@@ -591,15 +646,14 @@ export function WorkoutProvider({
               exercise.sets.length > 0,
           );
 
-      await finishWorkoutApi(
-        workoutId,
-        workoutExercises,
-      );
+      const finished = await finishWorkoutApi(workoutId, workoutExercises, revision.current);
 
       setStartedAt(null);
       setExercises([]);
       setWorkoutId(null);
       setRestEndsAt(null);
+      setNotes("");
+      return finished.id as number;
     } catch (error) {
       console.error(
         "Failed to finish workout:",
@@ -607,7 +661,7 @@ export function WorkoutProvider({
       );
 
       throw error;
-    }
+    } finally { syncing.current = false; }
   }
 
   async function cancelActiveWorkout() {
@@ -618,7 +672,7 @@ export function WorkoutProvider({
     setRestEndsAt(null);
   }
 
-  function addSet(exerciseId: string) {
+  function addSet(exerciseId: string, afterId?: string) {
     setExercises(
       (currentExercises) =>
         currentExercises.map(
@@ -633,10 +687,11 @@ export function WorkoutProvider({
             const nextSetNumber =
               exercise.sets.length + 1;
 
+            const position = afterId ? exercise.sets.findIndex((set) => set.id === afterId) + 1 : exercise.sets.length;
             return {
               ...exercise,
               sets: [
-                ...exercise.sets,
+                ...exercise.sets.slice(0, position),
                 {
                   id: `${exercise.id}-set-${Date.now()}`,
                   setNumber:
@@ -646,9 +701,10 @@ export function WorkoutProvider({
                   distance: "",
                   durationSeconds: "",
                   completed: false,
-                  setType: "REGULAR",
+                  setType: "REGULAR" as const,
                 },
-              ],
+                ...exercise.sets.slice(position),
+              ].map((set, index) => ({ ...set, setNumber: index + 1 })),
             };
           },
         ),
@@ -693,15 +749,11 @@ export function WorkoutProvider({
   }
 
   function updateExerciseRest(exerciseId: string, seconds: number) {
-    const normalized = Math.max(0, Math.min(600, Math.round(seconds)));
-    const exercise = exercises.find((item) => item.id === exerciseId);
+    const normalized = Math.max(0, Math.min(3600, Math.round(seconds)));
     setExercises((current) => current.map((item) =>
       item.id === exerciseId ? { ...item, restSeconds: normalized } : item,
     ));
-    if (exercise?.workoutExerciseId) {
-      void updateWorkoutExerciseSettings(exercise.workoutExerciseId, { restSeconds: normalized })
-        .catch((error) => console.error("Failed to save rest duration:", error));
-    }
+
   }
 
   function completeSet(
@@ -796,6 +848,7 @@ export function WorkoutProvider({
                     ? {
                         ...set,
                         [field]: value,
+                        completed: field === "targetReps" ? set.completed : false,
                       }
                     : set,
               ),
@@ -846,19 +899,7 @@ export function WorkoutProvider({
         ),
     );
 
-    if (exercise.workoutExerciseId) {
-      void updateWorkoutExerciseSettings(
-        exercise.workoutExerciseId,
-        {
-          weightUnit: unit,
-        },
-      ).catch((error) => {
-        console.error(
-          "Failed to save weight unit:",
-          error,
-        );
-      });
-    }
+
   }
 
   function updateDistanceUnit(
@@ -902,19 +943,7 @@ export function WorkoutProvider({
         ),
     );
 
-    if (exercise.workoutExerciseId) {
-      void updateWorkoutExerciseSettings(
-        exercise.workoutExerciseId,
-        {
-          distanceUnit: unit,
-        },
-      ).catch((error) => {
-        console.error(
-          "Failed to save distance unit:",
-          error,
-        );
-      });
-    }
+
   }
 
   async function addExercise(
@@ -985,214 +1014,42 @@ export function WorkoutProvider({
     );
   }
 
-  function deleteExercise(
-    exerciseId: string,
-  ) {
+  async function deleteExercise(exerciseId: string) {
     const exercise = exercises.find((item) => item.id === exerciseId);
-
-    async function remove() {
-      if (exercise?.workoutExerciseId) {
-        await deleteWorkoutExercise(exercise.workoutExerciseId);
-      }
-      setExercises((current) => current.filter((item) => item.id !== exerciseId));
-    }
-
-    void remove().catch((error) => console.error("Failed to delete exercise:", error));
+    if (exercise?.workoutExerciseId) await deleteWorkoutExercise(exercise.workoutExerciseId);
+    setExercises((current) => current.filter((item) => item.id !== exerciseId));
   }
 
-  function moveExercise(
-    exerciseId: string,
-    direction: "up" | "down",
-  ) {
-    setExercises(
-      (current) => {
-        const index =
-          current.findIndex(
-            (exercise) =>
-              exercise.id ===
-              exerciseId,
-          );
-
-        if (index === -1) {
-          return current;
-        }
-
-        const newIndex =
-          direction === "up"
-            ? index - 1
-            : index + 1;
-
-        if (
-          newIndex < 0 ||
-          newIndex >= current.length
-        ) {
-          return current;
-        }
-
-        const reordered = [
-          ...current,
-        ];
-
-        const [
-          movedExercise,
-        ] = reordered.splice(
-          index,
-          1,
-        );
-
-        if (!movedExercise) {
-          return current;
-        }
-
-        reordered.splice(
-          newIndex,
-          0,
-          movedExercise,
-        );
-
-        if (workoutId && reordered.every((item) => item.workoutExerciseId)) {
-          void updateWorkoutExerciseOrder(
-            workoutId,
-            reordered.map((item) => item.workoutExerciseId!),
-          ).catch((error) => console.error("Failed to save exercise order:", error));
-        }
-
-        return reordered;
-      },
-    );
+  async function moveExercise(exerciseId: string, direction: "up" | "down") {
+    const index = exercises.findIndex((item) => item.id === exerciseId);
+    const nextIndex = direction === "up" ? index - 1 : index + 1;
+    if (index < 0 || nextIndex < 0 || nextIndex >= exercises.length) return;
+    const reordered = [...exercises];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(nextIndex, 0, moved!);
+    if (workoutId) await updateWorkoutExerciseOrder(workoutId, reordered.map((item) => item.workoutExerciseId!));
+    setExercises(reordered);
   }
 
-  async function replaceExercise(
-    exerciseId: string,
-    exercise: WorkoutExercise,
-  ) {
-    const normalized =
-      normalizeExercise(exercise);
-
-    const oldExercise =
-      exercises.find(
-        (item) =>
-          item.id === exerciseId,
-      );
-
-    if (!oldExercise) {
-      throw new Error(
-        "Exercise to replace was not found",
-      );
-    }
-
-    if (!workoutId) {
-      setExercises(
-        (current) => {
-          const index =
-            current.findIndex(
-              (item) =>
-                item.id ===
-                exerciseId,
-            );
-
-          if (index === -1) {
-            return current;
-          }
-
-          const next = [...current];
-
-          next[index] =
-            normalized;
-
-          return next;
-        },
-      );
-
-      return;
-    }
-
-    if (oldExercise.workoutExerciseId) {
-      await deleteWorkoutExercise(oldExercise.workoutExerciseId);
-    }
-
-    const databaseExercise =
-      await addExerciseToWorkout(
-        workoutId,
-        normalized.exerciseId,
-        normalized.weightUnit,
-        normalized.distanceUnit,
-      );
-
-    const storedUserId =
-      await AsyncStorage.getItem(
-        "vytor_user_id",
-      );
-
-    const userId = Number(
-      storedUserId,
-    );
-
-    const nextOrder = exercises.flatMap((item) => {
-      const id =
-        item.id === exerciseId
-          ? databaseExercise.id
-          : item.workoutExerciseId;
-
-      return id === undefined ? [] : [id];
-    });
-
-    if (nextOrder.length === exercises.length) {
-      await updateWorkoutExerciseOrder(workoutId, nextOrder);
-    }
-
-    let previousSets:
-      | PreviousWorkoutSet[]
-      | undefined = [];
-
-    if (Number.isInteger(userId)) {
-      try {
-        const previous =
-          await getLastExerciseWorkout(
-            normalized.exerciseId,
-            userId,
-          );
-
-        previousSets =
-          previous?.sets ?? [];
-      } catch (error) {
-        console.error(
-          "Failed to load previous exercise:",
-          error,
-        );
-      }
-    }
-
-    setExercises(
-      (current) => {
-        const index =
-          current.findIndex(
-            (item) =>
-              item.id ===
-              exerciseId,
-          );
-
-        if (index === -1) {
-          return current;
-        }
-
-        const next = [...current];
-
-        next[index] = {
-          ...normalized,
-          workoutExerciseId:
-            databaseExercise.id,
-          previousSets,
-        };
-
-        return next;
-      },
-    );
+  async function replaceExercise(exerciseId: string, exercise: WorkoutExercise) {
+    const old = exercises.find((item) => item.id === exerciseId);
+    if (!old?.workoutExerciseId || !workoutId) throw new Error("Active exercise was not found");
+    if (syncing.current) throw new Error("Workout is syncing. Try again in a moment.");
+    syncing.current = true;
+    try {
+      const normalized = normalizeExercise(exercise);
+      const saved = await request(`/workout-exercises/${old.workoutExerciseId}/replace`, "PATCH", { exerciseId: exercise.exerciseId, weightUnit: normalized.weightUnit, distanceUnit: normalized.distanceUnit, revision: revision.current });
+      revision.current = saved.revision;
+      const userId = Number(await AsyncStorage.getItem("vytor_user_id"));
+      const [replacement] = await loadPreviousSets([{ ...normalized, workoutExerciseId: saved.id }], userId);
+      setExercises((items) => items.map((item) => item.id === exerciseId ? replacement! : item));
+    } finally { syncing.current = false; }
   }
 
   return (
     <WorkoutContext.Provider
       value={{
+        notes, setNotes, syncStatus, reloadActiveWorkout, updateExerciseNotes, setTimer, savePreset,
         startedAt,
         isActive:
           startedAt !== null,

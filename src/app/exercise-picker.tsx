@@ -1,8 +1,9 @@
 import {
+  useFocusEffect,
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,7 +15,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import {
   useWorkout,
   type WorkoutExercise,
@@ -29,9 +31,13 @@ type Exercise = {
   name: string;
   description?: string | null;
   measurementType: ExerciseMeasurementType;
+  ownerId?: number | null;
+  preferences?: { notes: string; restSeconds: number; weightUnit: "KG" | "LBS"; distanceUnit: "KM" | "MI" }[];
 };
 
 export default function ExercisePickerScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
 
   const {
@@ -43,6 +49,7 @@ export default function ExercisePickerScreen() {
   }>();
 
   const {
+    exercises: activeExercises,
     addExercise,
     preferredDistanceUnit,
     preferredWeightUnit,
@@ -57,12 +64,14 @@ export default function ExercisePickerScreen() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const idCounter = useRef(0);
+  const [error, setError] = useState("");
 
-  async function loadExercises() {
+  const loadExercises = useCallback(async () => {
     try {
       const data = await getExercises();
       setExercises(data);
     } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not load exercises");
       console.error(
         "Failed to load exercises:",
         error,
@@ -70,12 +79,9 @@ export default function ExercisePickerScreen() {
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    const timeout = setTimeout(() => void loadExercises(), 0);
-    return () => clearTimeout(timeout);
   }, []);
+
+  useFocusEffect(useCallback(() => { void loadExercises(); }, [loadExercises]));
 
   function createWorkoutExercise(
     exercise: Exercise,
@@ -87,8 +93,10 @@ export default function ExercisePickerScreen() {
       name: exercise.name,
       description: exercise.description,
       measurementType: exercise.measurementType,
-      weightUnit: preferredWeightUnit,
-      distanceUnit: preferredDistanceUnit,
+      notes: exercise.preferences?.[0]?.notes,
+      restSeconds: exercise.preferences?.[0]?.restSeconds,
+      weightUnit: exercise.preferences?.[0]?.weightUnit ?? preferredWeightUnit,
+      distanceUnit: exercise.preferences?.[0]?.distanceUnit ?? preferredDistanceUnit,
       sets: [
         {
           id: `set-${exercise.id}-${uniqueId}`,
@@ -107,6 +115,7 @@ export default function ExercisePickerScreen() {
   async function selectExercise(
     exercise: Exercise,
   ) {
+    if (activeExercises.some((item) => item.exerciseId === exercise.id) && mode !== "freestyle") { setError("This exercise is already in the workout"); return; }
     if (processing) {
       return;
     }
@@ -132,7 +141,8 @@ export default function ExercisePickerScreen() {
           "Failed to replace exercise:",
           error,
         );
-        setProcessing(false);
+        setError(error instanceof Error ? error.message : "Could not save changes");
+      setProcessing(false);
       }
 
       return;
@@ -149,6 +159,7 @@ export default function ExercisePickerScreen() {
         );
 
       if (alreadySelected) {
+        setSelectedExercises((items) => items.filter((item) => item.exerciseId !== exercise.id));
         return;
       }
 
@@ -175,6 +186,7 @@ export default function ExercisePickerScreen() {
         "Failed to add exercise:",
         error,
       );
+      setError(error instanceof Error ? error.message : "Could not save changes");
       setProcessing(false);
     }
   }
@@ -201,6 +213,7 @@ export default function ExercisePickerScreen() {
         "Failed to start freestyle workout:",
         error,
       );
+      setError(error instanceof Error ? error.message : "Could not save changes");
       setProcessing(false);
     }
   }
@@ -249,8 +262,11 @@ export default function ExercisePickerScreen() {
           }
           editable={!processing}
         />
+        {!!search && <Pressable accessibilityLabel="Clear search" onPress={() => setSearch("")} style={{ position: "absolute", right: 18, top: 12, padding: 12 }}><Text style={{ color: Colors.text }}>×</Text></Pressable>}
       </View>
 
+      {!!error && <Text accessibilityRole="alert" style={{ color: Colors.accent, padding: 12 }}>{error}</Text>}
+      <Pressable style={{ padding: 12, minHeight: 44 }} onPress={() => router.push("/exercise-editor")}><Text style={{ color: Colors.accent }}>+ Create own exercise</Text></Pressable>
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator
@@ -328,6 +344,7 @@ export default function ExercisePickerScreen() {
                     </Text>
                   </View>
 
+                  {exercise.ownerId != null && <Pressable onPress={() => router.push({ pathname: "/exercise-editor", params: { exerciseId: exercise.id } })} style={{ padding: 12 }}><Text style={{ color: Colors.accent }}>⚙</Text></Pressable>}
                   <Text
                     style={
                       selected
@@ -353,7 +370,10 @@ export default function ExercisePickerScreen() {
             </View>
           )}
 
-          {mode === "freestyle" &&
+
+        </ScrollView>
+      )}
+      <View style={{ padding: 12 }}>          {mode === "freestyle" &&
             selectedExercises.length > 0 && (
               <Pressable
                 style={[
@@ -374,14 +394,13 @@ export default function ExercisePickerScreen() {
                     : `START WORKOUT (${selectedExercises.length})`}
                 </Text>
               </Pressable>
-            )}
-        </ScrollView>
-      )}
+            )}</View>
+
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,

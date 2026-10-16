@@ -4,7 +4,7 @@ import "dotenv/config";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL!,
-});
+}, { schema: process.env.DATABASE_SCHEMA ?? "public" });
 
 const prisma = new PrismaClient({
   adapter,

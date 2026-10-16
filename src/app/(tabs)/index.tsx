@@ -2,6 +2,8 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -10,7 +12,10 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
-import { Colors } from "@/constants/theme";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { formatTime, parseTime } from "@/utils/duration";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import { useWorkout } from "@/context/workout-context";
 import { checkBackend } from "../../services/api";
 
@@ -19,7 +24,10 @@ type LayoutPosition = {
 };
 
 export default function HomeScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const {
+    notes, setNotes, syncStatus, reloadActiveWorkout, updateExerciseNotes, setTimer, savePreset, finishWorkout, cancelActiveWorkout,
     isActive,
     exercises,
     addSet,
@@ -37,6 +45,20 @@ export default function HomeScreen() {
   } = useWorkout();
 
   const router = useRouter();
+  const [dialog, setDialog] = useState<"finish" | "discard" | "reload" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [timerInput, setTimerInput] = useState("");
+  async function confirmAction() {
+    setBusy(true);
+    try {
+      if (dialog === "finish") { const id = await finishWorkout(); setDialog(null); if (id) router.push({ pathname: "/workout-detail", params: { workoutId: id, result: "1" } }); }
+      else if (dialog === "reload") { await reloadActiveWorkout(); setDialog(null); }
+      else { await cancelActiveWorkout(); setDialog(null); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save workout"); setDialog(null); }
+    finally { setBusy(false); }
+  }
+
 
   const [backendStatus, setBackendStatus] = useState("Checking...");
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
@@ -156,17 +178,17 @@ export default function HomeScreen() {
   }
 
   function removeExercise(exerciseId: string) {
-    deleteExercise(exerciseId);
+    void deleteExercise(exerciseId).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not delete exercise"));
     closeExerciseMenu();
   }
 
   function moveExerciseUp(exerciseId: string) {
-    moveExercise(exerciseId, "up");
+    void moveExercise(exerciseId, "up").catch((cause) => setError(cause.message));
     closeExerciseMenu();
   }
 
   function moveExerciseDown(exerciseId: string) {
-    moveExercise(exerciseId, "down");
+    void moveExercise(exerciseId, "down").catch((cause) => setError(cause.message));
     closeExerciseMenu();
   }
 
@@ -188,9 +210,9 @@ export default function HomeScreen() {
 
   if (isActive) {
     return (
-      <View style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.container}>
         <View style={styles.workoutToolbar}>
-          <Text style={styles.workoutToolbarTitle}>ACTIVE WORKOUT</Text>
+          <Pressable accessibilityLabel="Open saved workouts and templates" onPress={() => router.push("/workout-setup")}><Text style={styles.workoutToolbarTitle}>ACTIVE WORKOUT · PRESETS ›</Text></Pressable>
           <Pressable style={styles.quickAddButton} onPress={() => router.push("/exercise-picker")}>
             <Text style={styles.quickAddText}>+ EXERCISE</Text>
           </Pressable>
@@ -205,6 +227,11 @@ export default function HomeScreen() {
           enableResetScrollToCoords={false}
           showsVerticalScrollIndicator={false}
         >
+          <Text style={styles.optionText}>{syncStatus}</Text>
+          <Pressable onPress={() => setDialog("reload")}><Text style={styles.quickAddText}>Reload server workout</Text></Pressable>
+          {!!error && <Text accessibilityRole="alert" style={styles.deleteText}>{error}</Text>}
+          <TextInput accessibilityLabel="Workout notes" multiline maxLength={5000} placeholder="Workout notes" placeholderTextColor={Colors.textMuted} value={notes} onChangeText={setNotes} style={[styles.input, { minHeight: 60, textAlign: "left", marginVertical: 12 }]} />
+          <Pressable onPress={() => void savePreset().then(() => setError("Preset saved in Templates")).catch((cause) => setError(cause.message))}><Text style={styles.quickAddText}>Save as reusable preset</Text></Pressable>
           {exercises.map((exercise) => {
             const isSelected =
               selectedExerciseId === exercise.id;
@@ -304,23 +331,6 @@ export default function HomeScreen() {
                       </Pressable>
                     )}
 
-                    <View style={styles.restOption}>
-                      <Text style={styles.optionText}>Rest after set</Text>
-                      <View style={styles.restControls}>
-                        {[30, 60, 90, 120].map((seconds) => (
-                          <Pressable
-                            key={seconds}
-                            style={[
-                              styles.restChoice,
-                              (exercise.restSeconds ?? restSeconds) === seconds && styles.restChoiceSelected,
-                            ]}
-                            onPress={() => updateExerciseRest(exercise.id, seconds)}
-                          >
-                            <Text style={styles.restChoiceText}>{seconds}s</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    </View>
 
                     <Pressable
                       style={styles.optionButton}
@@ -377,6 +387,11 @@ export default function HomeScreen() {
                       </Text>
                     </Pressable>
 
+                    <View style={styles.restOption}>
+                      <Text style={styles.optionText}>Rest after set: {formatTime(exercise.restSeconds ?? restSeconds)}</Text>
+                      <TextInput accessibilityLabel="Rest duration mm:ss" placeholder="mm:ss" placeholderTextColor={Colors.textMuted} keyboardType="number-pad" value={timerInput} onChangeText={setTimerInput} style={styles.input} />
+                      <Pressable style={styles.optionButton} onPress={() => { const seconds = parseTime(timerInput); if (seconds === null || seconds > 3600) { setError("Enter a valid timer up to 01:00:00"); return; } updateExerciseRest(exercise.id, seconds); setTimer(seconds); closeExerciseMenu(); }}><Text style={styles.quickAddText}>Set Timer</Text></Pressable>
+                    </View>
                     <Pressable
                       style={styles.deleteButton}
                       onPress={() =>
@@ -390,8 +405,9 @@ export default function HomeScreen() {
                   </View>
                 )}
 
+                <TextInput accessibilityLabel={`Form cues for ${exercise.name}`} multiline maxLength={2000} placeholder="Permanent form cues" placeholderTextColor={Colors.textMuted} value={exercise.notes ?? ""} onChangeText={(value) => updateExerciseNotes(exercise.id, value)} style={[styles.input, { textAlign: "left", marginBottom: 10 }]} />
                 <View style={styles.columnHeader}>
-                  <Text style={styles.setHeader}>SET</Text>
+                  <Text style={styles.setHeader}>{/boxing|muay|kickboxing/i.test(exercise.name) ? "SESSION" : "SET"}</Text>
                   <Text style={styles.previousHeader}>LAST</Text>
                   {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && (
                     <Text style={styles.inputHeader}>WEIGHT</Text>
@@ -403,12 +419,12 @@ export default function HomeScreen() {
                     <Text style={styles.inputHeader}>DISTANCE</Text>
                   )}
                   {(exercise.measurementType === "TIME" || exercise.measurementType === "DISTANCE_TIME") && (
-                    <Text style={styles.inputHeader}>SECONDS</Text>
+                    <Text style={styles.inputHeader}>TIME</Text>
                   )}
                   <View style={styles.actionHeader} />
                 </View>
 
-                {exercise.sets.map((set) => {
+                {exercise.sets.map((set, setIndex) => {
                   const previousSet =
                     exercise.previousSets?.find(
                       (previous) =>
@@ -417,17 +433,17 @@ export default function HomeScreen() {
                     );
 
                   const previousValues = previousSet
-                    ? [previousSet.weight, previousSet.reps, previousSet.distance, previousSet.durationSeconds]
+                    ? [previousSet.weight === null ? null : Number((previousSet.weight * (exercise.weightUnit === "LBS" ? 2.2046226218 : 1)).toFixed(2)), previousSet.reps, previousSet.distance === null ? null : Number((previousSet.distance * (exercise.distanceUnit === "MI" ? 0.6213711922 : 1)).toFixed(2)), previousSet.durationSeconds === null ? null : formatTime(previousSet.durationSeconds)]
                         .filter((value) => value !== null)
                     : [];
                   const previousText = previousValues.length ? previousValues.join("/") : "—";
 
                   return (
-                    <View key={set.id}>
+                    <View key={set.id} style={set.setType === "DROP" ? { marginLeft: 12, borderLeftWidth: 2, borderLeftColor: Colors.accent, paddingLeft: 4 } : undefined}>
                     <View style={styles.setRow} onLayout={(event) => handleSetLayout(set.id, event.nativeEvent.layout.y)}>
                       <Pressable style={styles.setNumberButton} onPress={() => setSelectedSetId(selectedSetId === set.id ? null : set.id)}>
                         <Text style={[styles.setNumber, set.setType !== "REGULAR" && styles.specialSetNumber]}>
-                          {set.setType === "WARMUP" ? "W" : set.setType === "DROP" ? "D" : set.setNumber}
+                          {set.setType === "WARMUP" ? "W" : set.setType === "DROP" || exercise.sets[setIndex + 1]?.setType === "DROP" ? "D" : exercise.sets.slice(0, setIndex + 1).filter((item) => item.setType === "REGULAR").length}
                         </Text>
                       </Pressable>
 
@@ -453,11 +469,12 @@ export default function HomeScreen() {
                           )
                         }
                         keyboardType="decimal-pad"
-                        placeholder={exercise.weightUnit.toLowerCase()}
+                        placeholder="0"
                         placeholderTextColor={
                           Colors.textMuted
                         }
                       />}
+                      {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && <Text style={styles.unit}>{exercise.weightUnit === "KG" ? "kg" : "lb"}</Text>}
 
                       {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && <TextInput
                         style={styles.input}
@@ -477,7 +494,7 @@ export default function HomeScreen() {
                           )
                         }
                         keyboardType="number-pad"
-                        placeholder="reps"
+                        placeholder={set.targetReps || "reps"}
                         placeholderTextColor={
                           Colors.textMuted
                         }
@@ -489,17 +506,18 @@ export default function HomeScreen() {
                         onFocus={() => scrollToSet(exercise.id, set.id)}
                         onChangeText={(value) => updateSet(exercise.id, set.id, "distance", value)}
                         keyboardType="decimal-pad"
-                        placeholder={exercise.distanceUnit.toLowerCase()}
+                        placeholder="0"
                         placeholderTextColor={Colors.textMuted}
                       />}
 
+                      {(exercise.measurementType === "DISTANCE_TIME" || exercise.measurementType === "WEIGHT_DISTANCE") && <Text style={styles.unit}>{exercise.distanceUnit.toLowerCase()}</Text>}
                       {(exercise.measurementType === "TIME" || exercise.measurementType === "DISTANCE_TIME") && <TextInput
                         style={styles.input}
-                        value={set.durationSeconds}
+                        value={set.durationSeconds ? formatTime(Number(set.durationSeconds)) : ""}
                         onFocus={() => scrollToSet(exercise.id, set.id)}
-                        onChangeText={(value) => updateSet(exercise.id, set.id, "durationSeconds", value)}
+                        onChangeText={(value) => { const seconds = parseTime(value); if (value === "") updateSet(exercise.id, set.id, "durationSeconds", ""); else if (seconds !== null) updateSet(exercise.id, set.id, "durationSeconds", String(seconds)); else setError("Minutes and seconds must be below 60"); }}
                         keyboardType="number-pad"
-                        placeholder="sec"
+                        placeholder="00:00:00"
                         placeholderTextColor={Colors.textMuted}
                       />}
 
@@ -510,10 +528,7 @@ export default function HomeScreen() {
                             styles.finishSetButtonCompleted,
                         ]}
                         onPress={() =>
-                          completeSet(
-                            exercise.id,
-                            set.id,
-                          )
+                          completeSet(exercise.id, set.id) || setError("Enter valid non-negative values for this set first")
                         }
                       >
                         <Text
@@ -529,6 +544,8 @@ export default function HomeScreen() {
                     </View>
                     {selectedSetId === set.id && (
                       <View style={styles.setOptions}>
+                        {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && <TextInput accessibilityLabel="Target reps" keyboardType="number-pad" placeholder="Target reps" placeholderTextColor={Colors.textMuted} value={set.targetReps ?? ""} onChangeText={(value) => { if (/^\d{0,3}$/.test(value)) updateSet(exercise.id, set.id, "targetReps", value); }} style={[styles.input, { minWidth: 110 }]} />}
+                        <Pressable style={styles.setOption} onPress={() => { addSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.setOptionText}>Add another Set</Text></Pressable>
                         <Pressable style={styles.setOption} onPress={() => setSetType(exercise.id, set.id, "WARMUP")}><Text style={styles.setOptionText}>Warm-up</Text></Pressable>
                         <Pressable style={styles.setOption} onPress={() => setSetType(exercise.id, set.id, "REGULAR")}><Text style={styles.setOptionText}>Regular</Text></Pressable>
                         <Pressable style={styles.setOption} onPress={() => { addDropSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.setOptionText}>+ Drop set</Text></Pressable>
@@ -570,7 +587,12 @@ export default function HomeScreen() {
             </Text>
           </Pressable>
         </KeyboardAwareScrollView>
-      </View>
+        <View style={styles.bottomActions}>
+          <Pressable accessibilityRole="button" disabled={busy} style={styles.bottomButton} onPress={() => setDialog("discard")}><Text style={styles.deleteText}>End / Discard</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} style={[styles.bottomButton, { backgroundColor: Colors.accent }]} onPress={() => setDialog("finish")}><Text style={{ color: "#fff", fontWeight: "800" }}>Finish Workout</Text></Pressable>
+        </View>
+        <ConfirmDialog visible={dialog !== null} busy={busy} title={dialog === "reload" ? "Reload server workout?" : dialog === "finish" ? "Finish workout?" : "Discard workout?"} message={dialog === "reload" ? "Unsynced changes on this device will be replaced with the server workout. Continue?" : dialog === "finish" ? (() => { const pending = exercises.flatMap((item) => item.sets.filter((set) => !set.completed).map((set) => `□ ${item.name}: ${set.setType.toLowerCase()} ${set.setNumber}`)); return pending.length ? `These sets are unfinished and will not be recorded:\n\n${pending.join("\n")}\n\nSave completed sets and finish anyway?` : "All sets completed. Save your workout?"; })() : "This removes the active workout and its sets permanently."} onCancel={() => setDialog(null)} onConfirm={() => void confirmAction()} confirmLabel={dialog === "reload" ? "Reload" : dialog === "finish" ? "Finish Workout" : "Discard"} />
+      </KeyboardAvoidingView>
     );
   }
 
@@ -604,7 +626,10 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
+  bottomActions: { flexDirection: "row", gap: 10, padding: 12, backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.border },
+  bottomButton: { flex: 1, minHeight: 48, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  unit: { color: Colors.textMuted, fontSize: 10 },
   container: {
     flex: 1,
     backgroundColor: Colors.background,

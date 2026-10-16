@@ -15,3 +15,9 @@ export function progressForXp(xp: number) {
 export function workoutXp(completedSetCount: number) {
   return 100 + Math.max(0, completedSetCount) * 10;
 }
+
+export function rankTier(xp: number) {
+  const thresholds = [{ name: "Bronze", xp: 0 }, { name: "Silver", xp: 1000 }, { name: "Gold", xp: 5000 }, { name: "Platinum", xp: 15000 }, { name: "Diamond", xp: 40000 }];
+  const index = thresholds.findLastIndex((tier) => xp >= tier.xp);
+  return { tier: thresholds[Math.max(0, index)]!.name, nextTierXp: thresholds[index + 1]?.xp ?? null };
+}

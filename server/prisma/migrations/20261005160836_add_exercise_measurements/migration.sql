@@ -11,11 +11,11 @@ CREATE TYPE "ExerciseMeasurementType" AS ENUM ('WEIGHT_REPS', 'REPS', 'DISTANCE_
 -- AlterEnum
 BEGIN;
 CREATE TYPE "DistanceUnit_new" AS ENUM ('KM', 'MI');
-ALTER TABLE "public"."WorkoutExercise" ALTER COLUMN "distanceUnit" DROP DEFAULT;
-ALTER TABLE "WorkoutExercise" ALTER COLUMN "distanceUnit" TYPE "DistanceUnit_new" USING ("distanceUnit"::text::"DistanceUnit_new");
+ALTER TABLE "WorkoutExercise" ALTER COLUMN "distanceUnit" DROP DEFAULT;
+ALTER TABLE "WorkoutExercise" ALTER COLUMN "distanceUnit" TYPE "DistanceUnit_new" USING ((CASE WHEN "distanceUnit"::text = 'MILES' THEN 'MI' ELSE "distanceUnit"::text END)::"DistanceUnit_new");
 ALTER TYPE "DistanceUnit" RENAME TO "DistanceUnit_old";
 ALTER TYPE "DistanceUnit_new" RENAME TO "DistanceUnit";
-DROP TYPE "public"."DistanceUnit_old";
+DROP TYPE "DistanceUnit_old";
 ALTER TABLE "WorkoutExercise" ALTER COLUMN "distanceUnit" SET DEFAULT 'KM';
 COMMIT;
 

@@ -1,44 +1,99 @@
-# Vytor – nächste Aufgaben
+# Vytor – TODO
 
-Diese Liste basiert auf dem dokumentierten Entwicklungsstand vom 16. Oktober 2026 und den 13 geplanten Verbesserungen aus dem Produkt-Board. Bereits abgeschlossene technische Arbeiten bleiben dokumentiert; neue Aufgaben sind nach Abhängigkeiten und Nutzerwirkung priorisiert. Die offenen Punkte wurden nicht erneut im Code verifiziert.
+**Stand:** 16. Oktober 2026
+**Basis:** implementierter Repository-Stand und automatisierte Prüfungen gegen PostgreSQL.
+**Hinweis:** P1–P3 sind im Code umgesetzt. Automatisierte Prüfungen und Plattformexport ersetzen keine manuellen Gerätetests; verbleibende Abnahmen stehen unter P4 und in `docs/RELEASE_CHECKLIST.md`.
 
-## P0 – Projekt wieder ausführbar machen (abgeschlossen)
+## P0 – Technische Grundlagen (abgeschlossen)
 
-- [x] **Datenmodell vereinheitlichen:** Prisma-Schema, Migrationen und Anwendungscode verwenden einheitlich `measurementType`, `ExerciseMeasurementType`, `MI` und `requesterId`/`recipientId`. Prisma-Client, Schema-Validierung und Offline-Schemaerzeugung sind geprüft.
-- [x] **TypeScript- und Seed-Fehler beheben:** App- und Server-Typecheck sowie Expo-Lint laufen erfolgreich.
+- [x] **Datenmodell vereinheitlichen:** `measurementType`, `ExerciseMeasurementType`, `MI` und `requesterId`/`recipientId` in Schema, Migrationen und Code konsistent verwenden; Prisma-Validierung und Offline-Schemaerzeugung prüfen.
+- [x] **TypeScript- und Seed-Fehler beheben:** App-/Server-Typecheck und Expo-Lint erfolgreich ausführen.
+- [x] **API-Konfiguration:** API-Adresse und Server-Port über Umgebungsvariablen konfigurieren; Beispieldateien bereitstellen.
+- [x] **Authentifizierung:** Bearer-Sessions (30 Tage), geschützte private Routen und getrennte Behandlung ungültiger Sessions und Netzwerkfehler.
+- [x] **Kernlogik testen:** Levelgrenzen, XP und Workout-Fortschritt automatisiert prüfen.
 
-## P1 – Workout-Kern und Fehlerbehebung
+## P1 – Kritische Fehler und Workout-Zuverlässigkeit
 
-- [x] **Aktive Übungen vollständig synchronisieren:** Hinzufügen, Entfernen, Ersetzen und Umordnen sind an Backend-Endpunkte angebunden.
-- [x] **Aktives Workout wiederherstellen oder abbrechen:** Entwurf, Sätze und Timer werden lokal wiederhergestellt und gegen das offene Backend-Workout geprüft; Abbrechen löscht das offene Workout.
-- [x] **Eingaben und Abschluss absichern:** Pflichtwerte werden je Messart validiert; Sätze, Abschluss und XP-Vergabe laufen in einer Transaktion.
-- [ ] **Gespeicherte Workouts laden:** Fehler beim Laden gespeicherter Workouts reproduzieren und beheben; Lade-, Fehler- und Leerzustände sowie API-/Session-Verhalten prüfen.
-- [ ] **Letzte Workouts öffnen:** Nicht reagierende Einträge unter „Recent Workouts“ reparieren; Navigation zu Workout-Details auf iOS, Android und Web testen.
-- [ ] **Workout-Aktionen immer sichtbar halten:** „Finish Workout“ und „End Workout“ (Abbrechen/Verwerfen) während des Trainings zuverlässig erreichbar machen, inklusive Safe Areas und Tastatur; bestehende Bestätigungsdialoge erhalten.
-- [ ] **Satzoptionen erweitern:** Beim Antippen eines Satzes „Warm-Up“, „Regular“, „Drop-Set“ und „Delete Set“ anbieten. Beim Drop-Set direkt unter dem gewählten Satz einen zugehörigen zusätzlichen Satz anlegen und dessen Zuordnung und Darstellung dauerhaft speichern.
-- [ ] **Pausentimer flexibilisieren:** Statische Timer-Vorgabe entfernen; Dauer frei wählen und je Übung individuell anpassen. Persistenz und Wiederherstellung des aktiven Timers berücksichtigen.
+- [x] **Aktive Übungen synchronisieren:** Hinzufügen, Entfernen, Ersetzen und Umordnen über Backend-Endpunkte.
+- [x] **Aktives Workout wiederherstellen/abbrechen (Grundlage):** Entwurf, Sätze und Timer lokal sichern, mit offenem Backend-Workout abgleichen; Abbrechen entfernt offenes Workout.
+- [x] **Satzvalidierung und Abschluss absichern:** Eingaben je Messart validieren; Sätze, Abschluss und XP-Vergabe transaktional speichern.
+- [x] **Gespeicherte Workouts laden:** Fehler reproduzieren und beheben; API, Session, Lade-/Leer-/Fehlerzustände prüfen.
+- [x] **Recent Workouts öffnen:** Klickbare Einträge und Navigation zu Workout-Details reparieren; nur berechtigte Nutzer sehen vollständige Details. Für andere Profile die eigene zugängliche Trainingsübersicht darstellen, keine zufälligen fremden Workouts.
+- [x] **Aktives Workout kontoübergreifend synchronisieren:** Beim Login auf einem anderen Gerät ein bereits offenes Workout erkennen und fortsetzen; konkurrierende Starts verhindern bzw. kontrolliert behandeln. Lokale Wiederherstellung mit dem Serverzustand abgleichen.
+- [x] **Übung im Workout löschen:** Fehler beheben, bei dem Übungen auf dem Workout-Screen nicht entfernt werden können; Backend-Synchronisation und Wiederherstellung testen.
+- [x] **Workout-Aktionen dauerhaft sichtbar:** „Finish Workout“ und „End Workout“/Verwerfen am unteren Bildschirmrand erreichbar halten; Safe Areas, Scrollbereich und Tastatur berücksichtigen; Bestätigungen beibehalten.
+- [x] **„Start Workout“ am unteren Bildschirmrand:** Button in der Übungsauswahl fixieren und auf iOS, Android und Web korrekt darstellen.
+- [x] **Freundschaftsanfragen reparieren:** Fehler „Cannot send friend requests“ reproduzieren; Request-Endpunkt, Berechtigungen, Status und Fehlermeldungen prüfen.
+- [x] **Profilbilder anderer Nutzer anzeigen:** Fehlende Bilder in öffentlichen Profilen/Freundesansichten beheben; Fallback und Zugriffsregeln prüfen.
 
-## P2 – Produkt-Systeme und UX
+## P2 – Workout-Funktionen und Übungsverwaltung
 
-- [x] **Echte Authentifizierung einführen:** 30-Tage-Bearer-Sessions schützen private API-Routen; ungültige Sessions und Netzwerkfehler werden getrennt behandelt.
-- [x] **Levelling-System implementieren:** Workout-Abschlüsse vergeben einmalig Basis-XP plus Satz-XP; quadratische Levelkurve, XP-Ereignisse und Fortschritt sind serverseitig gespeichert und getestet.
-- [x] **Rank-System implementieren (Grundlage):** Globales XP-Ranking mit Gleichständen, API-Endpunkt und Top-5-Profilansicht ersetzen die bisherigen Attrappen.
-- [x] **Freunde-System abschließen (Grundlage):** Anfrage senden, annehmen, ablehnen und zurückziehen sowie Freund entfernen sind angebunden; Profile verwenden echten Status und echte Trainingsaktivität.
-- [x] **Settings ausbauen (Grundlage):** Gewichts-/Distanzeinheit, Standard-Pausendauer und Darstellungspräferenz werden serverseitig gespeichert; Einheiten und Pausendauer wirken auf neue Workouts. Logout beendet die Server-Session.
-- [x] **Workout-Bedienung vervollständigen (Grundlage):** Die Tab-Leiste besitzt plattformgerechte Symbole und vor dem Abschluss oder Verwerfen eines Workouts erscheint eine Bestätigung.
-- [x] **Workout-Vorlagen verwalten:** Persönliche Vorlagen können erstellt, bearbeitet und gelöscht werden; die globale Starter-Vorlage bleibt schreibgeschützt.
-- [x] **Übungs-Messarten korrigieren:** Kraft-, Körpergewichts-, Zeit-, Distanz-/Zeit- und Gewicht-/Distanzübungen verwenden passende Eingabefelder; bestehende Daten werden per Migration berichtigt.
-- [ ] **Workout-Presets speichern:** Trainingskonfigurationen als wiederverwendbare Presets speichern und laden; mit bestehenden Workout-Vorlagen abgleichen, damit keine doppelte Funktion entsteht.
-- [ ] **Übung hinzufügen oben rechts platzieren:** „Add Exercise“ im Workout-Screen oben rechts erreichbar machen.
-- [ ] **Einheiten in Übungsoptionen verschieben:** Gewichts- und Distanzeinheiten aus den allgemeinen Einstellungen in die Optionen der jeweiligen Übung verlagern; bestehende Werte und Umrechnungen korrekt übernehmen.
-- [ ] **Rankings überarbeiten:** Rank-Darstellung und Zugriff auf globale Ranglisten ausarbeiten; vorhandenen XP-Ranking-Endpunkt wiederverwenden.
-- [ ] **Profil personalisieren:** Profilbild, Anzeigename und eindeutigen Benutzernamen im Format `@xyz` ergänzen; Bearbeitung, Validierung und Anzeige auf Profilen vorsehen.
-- [ ] **Global Ranking im Profil anpassen:** Nur den eigenen globalen Rang anzeigen, basierend auf XP; als „Level X“ statt ausschließlich als XP-Wert darstellen. Rang und Level fachlich getrennt halten.
-- [ ] **Leaderboard in Friends-Tab verschieben:** Ranglistenansicht aus dem bisherigen Bereich in den Freunde-Tab integrieren und Navigation aktualisieren.
-- [ ] **Account- und Theme-Finish:** Gespeicherte `LIGHT`/`DARK`/`SYSTEM`-Präferenz auf alle noch fest eingefärbten Screens anwenden, konsistente helle Darstellung sicherstellen sowie Passwortänderung und Kontolöschung ergänzen.
+- [x] **Workout-Vorlagen verwalten (Grundlage):** Eigene Vorlagen erstellen, bearbeiten und löschen; globale Starter-Vorlage schreibgeschützt halten.
+- [x] **Messarten korrekt abbilden (Grundlage):** Kraft-, Körpergewichts-, Zeit-, Distanz-/Zeit- und Gewicht-/Distanzübungen mit passenden Feldern und Datenmigration.
+- [x] **Workout-Bedienung (Grundlage):** Bestätigung vor Abschluss/Verwerfen und plattformgerechte Tab-Symbole.
+- [x] **Vorlagen-Auswahl überarbeiten:** „Starter Workout“ aus der Auswahl entfernen bzw. bewusst migrieren; Auswahl aktualisieren und Vorlagen direkt als Sets vorbereiten.
+- [x] **Vorlagen-Optionen ergänzen:** Zahnrad-/Menüsymbol je Vorlage für Bearbeiten, Löschen und weitere Aktionen; globale/systemeigene Vorlagen schützen.
+- [x] **Workout-Presets klären und umsetzen:** Wiederverwendbare Trainingskonfigurationen speichern/laden; prüfen, ob dies durch vorhandene Vorlagen abgedeckt werden kann, statt Doppelstrukturen zu schaffen.
+- [x] **Zielwiederholungen je Satz:** Übungen/Vorlagen mit Ziel-Reps und optionalen „Ghost“-Orientierungswerten ausstatten; Anzeige und Persistenz definieren.
+- [x] **Satztypen und Drop-Sets:** Antippen eines Satzes öffnet Warm-Up, Regular, Drop-Set und Delete Set; Drop-Set unmittelbar unter dem Ursprungssatz hinzufügen, visuell verbinden, ursprünglichen Satz mit „D“ markieren und Drop-Set nicht als separaten regulären Satz zählen.
+- [x] **Satzoptionen erweitern:** „Add another Set“ direkt unter dem ausgewählten Satz; zugehörigen Satz gezielt löschen können.
+- [x] **Pausentimer pro Übung:** Statische Vorgabe entfernen, freie Dauer wählen und pro Übung speichern; Timer beim Wiederherstellen korrekt fortsetzen.
+- [x] **„Rest after set“ anpassen:** Nicht als erste Option anzeigen; zusätzliche Aktion „Set Timer“ mit Eingabe `mm:ss` anbieten.
+- [x] **Zeiteingabe vereinheitlichen:** Anzeige `hh:mm:ss`; Zifferneingabe wie bei einem Geldbetrag (z. B. `123` → `00:01:23`) mit klarer Validierung.
+- [x] **„Add Exercise“ oben rechts:** Schaltfläche im aktiven Workout oben rechts platzieren.
+- [x] **Einheiten in Übungsoptionen verschieben:** Gewicht/Distanz pro Übung statt nur in allgemeinen Einstellungen wählen; Umrechnung, Persistenz und Historie konsistent halten.
+- [x] **Einheiten im aktiven Workout platzsparend anzeigen:** `kg`/`lb` bzw. Distanz direkt hinter dem Eingabefeld statt im Feld; Platz für Zielwerte schaffen.
+- [x] **Eigene Übungen erstellen:** Name, Messart und ggf. Kategorie konfigurieren; nur selbst angelegte Übungen bearbeiten/löschen.
+- [x] **Sportartspezifische Satzbezeichnungen:** Bei Boxing/ähnlichen Übungen „Session“ statt „Set“, bei Kraftübungen weiterhin „Set“ anzeigen.
+- [x] **Workout-Notizen:** Allgemeine Notizen oberhalb der Übungsliste speichern und anzeigen.
+- [x] **Übungsanmerkungen:** Dauerhafte Hinweise/Form-Cues unter dem Übungsnamen und vor den Sätzen anzeigen.
+- [x] **Workout-Abschluss prüfen:** Vor „Finish Workout“ Checkliste für nicht abgeschlossene Sätze anzeigen; bewusste Bestätigung ermöglichen.
+- [x] **Abschlussdialoge gestalten:** „Finish Workout“ und ähnliche Pop-ups konsistent mit dem App-Theme gestalten.
+- [x] **Workout-Ergebnisbildschirm:** Nach Abschluss Gesamt-XP mit Fortschrittsbalken, XP je Übung, 1RM für gewichtete Übungen und Highlights (mehr Wiederholungen bei gleichem Gewicht bzw. mehr Gewicht bei gleichen Wiederholungen) anzeigen.
 
-## P3 – Konfiguration und Qualität
+## P3 – Profil, Social, Ranking und Design
 
-- [x] **Umgebung konfigurierbar machen:** API-Adresse und Server-Port kommen aus dokumentierten Umgebungsvariablen; sichere Beispieldateien sind vorhanden.
-- [x] **Automatisierte Kernlogik testen:** Levelgrenzen, Fortschrittsbereiche und Workout-XP werden mit dem Node-Test-Runner geprüft.
-- [ ] **Endgeräteprüfung:** Registrierung/Login, Workout-, Vorlagen- und Freundesabläufe auf iOS, Android und Web vollständig ausführen. Insbesondere gespeicherte und letzte Workouts, Satztypen/Drop-Sets, Timer, dauerhafte Workout-Aktionen, Themes und Profil-/Ranking-Navigation testen.
+- [x] **Levelling (Grundlage):** Basis- und Satz-XP einmalig vergeben; Levelkurve, XP-Ereignisse und Fortschritt serverseitig verwalten.
+- [x] **Rankings (Grundlage):** Globales XP-Ranking mit Gleichständen, API-Endpunkt und Top-5-Profilansicht.
+- [x] **Freunde (Grundlage):** Anfragen senden/annehmen/ablehnen/zurückziehen, Freund entfernen, echte Status- und Trainingsdaten anbinden.
+- [x] **Settings (Grundlage):** Einheiten, Standardpause und Theme-Präferenz speichern; Logout beendet Session.
+- [x] **Rank-System ausgestalten:** Ränge, Schwellenwerte und Darstellung definieren; vorhandene XP-Daten und Ranking-Endpunkt verwenden.
+- [x] **Global Ranking im Profil vereinfachen:** Nur eigenen globalen Rang anzeigen; Level als „Level X“ darstellen, ohne Rang und Level zu verwechseln.
+- [x] **Leaderboard in Friends-Tab verschieben:** Navigation und Zugänglichkeit aktualisieren.
+- [x] **Profil personalisieren:** Profilbild, Anzeigename und eindeutiger `@username`; Upload, Bearbeitung, Validierung und Anzeige in eigenen/fremden Profilen.
+- [x] **Profilbild-Darstellung korrigieren:** Rahmen im Profil-Tab konsistent rund gestalten.
+- [x] **Muskelübersicht integrieren:** Muskelgrafik aus OpenGym nur bei zulässiger Lizenz übernehmen bzw. eigenständig erstellen; Vytor-Farbton nach Trainingsbelastung, nur indirekt beanspruchte Muskeln heller darstellen.
+- [x] **Helles Theme vervollständigen:** `LIGHT`/`DARK`/`SYSTEM` konsequent auf alle Screens, Modals und Komponenten anwenden.
+- [x] **Freestyle-Auswahl bereinigen:** Unerwünschten Rahmen um „FREESTYLE“ entfernen.
+- [x] **Übungssuche verbessern:** X-Schaltfläche zum Leeren des Suchfeldes.
+- [x] **Settings vereinfachen:** Doppelte/unnötige Einheitenauswahl nach Verlagerung entfernen; Zeitwahl für Standard-Pausentimer anbieten.
+- [x] **Feedback in Settings:** Möglichkeit für Nutzerfeedback ergänzen, inklusive Zustellung und Datenschutz-Hinweis.
+- [x] **Offline-Nutzung vorbereiten:** Lokale Speicherung für Training bei schlechter Verbindung; Synchronisations- und Konfliktstrategie definieren.
+- [x] **Account-Verwaltung:** Passwortänderung und Kontolöschung einschließlich serverseitiger Bereinigung und Bestätigung.
+
+## P4 – Qualitätssicherung und Release
+
+- [x] **Integrationsprüfung mit echter Datenbank:** Sämtliche Migrationen, Seed, Login und private Endpunkte gegen PostgreSQL in einem isolierten Testschema geprüft (`npm run test:integration`).
+- [ ] **Plattformtests:** iOS, Android und Web für Registrierung/Login, Workouts, Vorlagen, Freunde, Profil, Ranking und Settings durchgehen.
+- [ ] **Workout-Regressionsfälle (Geräteabnahme):** API-/Logiktests für Gerätewechsel, Konflikte, parallele Starts, Übungsersatz/-löschung, Satztypen, Zeit und Abschluss bestehen. App-Neustart, Offline/Online-Wechsel und Timer müssen auf Endgeräten gemäß Testmatrix abgenommen werden.
+- [x] **Social-Regressionsfälle (API):** Anfragen, fremde Profilbilder, Sichtbarkeit und Berechtigungen gegen PostgreSQL geprüft; visuelle Geräteabnahme bleibt Teil der Plattformtests.
+- [ ] **UI-/Accessibility-Prüfung:** Kleine Displays, Safe Areas, Tastatur, Touch-Ziele, Hell-/Dunkelmodus und Screenreader.
+- [ ] **Release-Abnahme:** EAS-Preview-/Production-/Submit-Konfiguration und CI sind vorbereitet. Projekt-/Store-Zuordnung, Identifier, Signierung, reale Builds und endgültige Datenschutzangaben benötigen Betreiber-/Store-Daten.
+
+## Empfohlene Umsetzungsreihenfolge
+
+1. Gespeicherte/letzte Workouts, Löschen von Übungen und Freundschaftsanfragen reparieren.
+2. Geräteübergreifende Workout-Fortsetzung und dauerhaft sichtbare Start-/Finish-/End-Aktionen.
+3. Satztypen/Drop-Sets, Timer und Eingabe-/Abschlusslogik.
+4. Vorlagen, Zielwiederholungen, eigene Übungen und Notizen.
+5. Profile, Rankings, Freundesansichten und Themes.
+6. Offline-Synchronisierung, Endgeräteprüfung und Release-Vorbereitung.
+
+## Umsetzungsentscheidungen und Grenzen
+
+- Vorlagen sind die einzige Preset-Struktur; „Save as reusable preset“ übernimmt Ziele, Satztypen, Einheiten, Pausen und Cues.
+- Die globale Starter-Vorlage bleibt für historische Referenzen erhalten, wird aber aus der Auswahl ausgeblendet.
+- Offline-Vorbereitung umfasst kontoabhängige Entwürfe, Wiederherstellung, Wiederholungsversuche und explizite Konflikte. Neue Starts, strukturelle Übungsänderungen und Abschluss brauchen weiterhin eine Verbindung.
+- Die Muskelübersicht ist eine eigene, schematische Darstellung mit heuristischer Zuordnung anhand von Übungsnamen; keine OpenGym-Assets wurden übernommen.
+- Feedback wird serverseitig im internen Datenbankeingang gespeichert, mit Hinweis vor dem Senden; kein externer E-Mail-Dienst ist konfiguriert.
+- Die historische Messartenmigration wurde für saubere Neuinstallationen repariert. Bestehende Installationen werden durch eine neue additive Migration erweitert; kein Datenbank-Reset.

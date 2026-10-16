@@ -1,9 +1,9 @@
+import { Avatar } from "@/components/avatar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
+import { MuscleOverview } from "@/components/muscle-overview";
 import { getUser, getWorkoutHistory } from "@/services/api";
 
 type WorkoutSet = {
@@ -51,6 +53,8 @@ type User = {
   displayName: string | null;
   avatarData: string | null;
   xp: number;
+  tier: string;
+  nextTierXp: number | null;
   level: number;
   rank: number;
   levelStartXp: number;
@@ -144,8 +148,11 @@ function isSameDay(first: Date, second: Date) {
 }
 
 export default function ProfileScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
 
+  const [now, setNow] = useState(() => Date.now());
   const [user, setUser] = useState<User | null>(null);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,6 +162,7 @@ export default function ProfileScreen() {
   const loadProfile = useCallback(async () => {
     try {
       setError(null);
+      setNow(Date.now());
 
       const storedUserId =
         await AsyncStorage.getItem("vytor_user_id");
@@ -267,11 +275,7 @@ export default function ProfileScreen() {
       {/* Profile header */}
       <View style={styles.profileHeader}>
         <View style={styles.avatar}>
-          {user.avatarData ? (
-            <Image source={{ uri: user.avatarData }} style={styles.avatarImage} />
-          ) : (
-            <Text style={styles.avatarText}>{(user.displayName || user.username).charAt(0).toUpperCase()}</Text>
-          )}
+          <Avatar uri={user.avatarData} name={user.displayName || user.username} size={88} />
         </View>
 
         <Text style={styles.username}>
@@ -286,15 +290,15 @@ export default function ProfileScreen() {
       {/* Level / Rank */}
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
-          <Text style={styles.statLabel}>LEVEL</Text>
+          <Text style={styles.statLabel}>PROGRESS</Text>
 
-          <Text style={styles.statValue}>{user.level}</Text>
+          <Text style={styles.statValue}>Level {user.level}</Text>
         </View>
 
         <View style={styles.statDivider} />
 
         <View style={styles.statCard}>
-          <Text style={styles.statLabel}>RANK</Text>
+          <Text style={styles.statLabel}>GLOBAL RANK</Text>
 
           <Text style={styles.statValue}>#{user.rank}</Text>
         </View>
@@ -304,6 +308,7 @@ export default function ProfileScreen() {
         {user.xp - user.levelStartXp} / {user.nextLevelXp - user.levelStartXp} XP to next level
       </Text>
 
+      <Text style={styles.xpText}>{user.tier}{user.nextTierXp ? ` · next tier at ${user.nextTierXp} XP` : " · highest tier"}</Text>
       {/* Recent workouts */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>
@@ -324,7 +329,9 @@ export default function ProfileScreen() {
             );
 
             return (
-              <View
+              <Pressable
+                accessibilityLabel={`Workouts on ${day.toLocaleDateString()}`}
+                onPress={() => { const item = workouts.find((entry) => isSameDay(new Date(entry.endedAt ?? entry.startedAt), day)); if (item) router.push({ pathname: "/workout-detail", params: { workoutId: item.id } }); }}
                 key={day.toISOString()}
                 style={[
                   styles.activityDay,
@@ -335,7 +342,7 @@ export default function ProfileScreen() {
                 {workedOut && (
                   <View style={styles.activityDot} />
                 )}
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -357,6 +364,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      <MuscleOverview exercises={workouts.filter((item) => new Date(item.endedAt ?? item.startedAt).getTime() >= now - 7 * 86400000).flatMap((item) => item.exercises.map((entry) => ({ name: entry.exercise.name, sets: entry.sets.length })))} />
       {/* Workout feed */}
       <View style={styles.section}>
         <View style={styles.feedHeader}>
@@ -443,7 +451,7 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
@@ -518,7 +526,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  avatarImage: { width: "100%", height: "100%" },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 46 },
 
   username: {
     color: Colors.text,

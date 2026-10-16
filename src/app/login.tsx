@@ -1,9 +1,9 @@
+import { useAppDialog } from "@/context/dialog-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
     ActivityIndicator,
-    Alert,
     Pressable,
     StyleSheet,
     Text,
@@ -11,10 +11,14 @@ import {
     View,
 } from "react-native";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import { loginUser } from "@/services/api";
 
 export default function LoginScreen() {
+  const { alert } = useAppDialog();
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
 
   const [username, setUsername] = useState("");
@@ -25,7 +29,7 @@ export default function LoginScreen() {
     const trimmedUsername = username.trim();
 
     if (trimmedUsername.length < 2) {
-      Alert.alert(
+      alert(
         "Invalid username",
         "Please enter your username."
       );
@@ -33,7 +37,7 @@ export default function LoginScreen() {
     }
 
     if (password.length < 8) {
-      Alert.alert(
+      alert(
         "Invalid password",
         "Please enter your password."
       );
@@ -55,7 +59,7 @@ export default function LoginScreen() {
 
       router.replace("/(tabs)");
     } catch (error) {
-      Alert.alert(
+      alert(
         "Could not log in",
         error instanceof Error
           ? error.message
@@ -127,7 +131,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: "center",

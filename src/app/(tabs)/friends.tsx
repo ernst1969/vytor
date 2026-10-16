@@ -1,6 +1,7 @@
+import { Avatar } from "@/components/avatar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -13,9 +14,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import {
   acceptFriendRequest,
+  getLeaderboard,
   getFriendRequests,
   getFriends,
   getFriendsFeed,
@@ -26,6 +29,8 @@ import {
 type User = {
   id: number;
   username: string;
+  avatarData?: string | null;
+  displayName?: string | null;
 };
 
 type FriendRequest = {
@@ -59,9 +64,6 @@ type FeedWorkout = {
   }[];
 };
 
-function getInitial(username: string) {
-  return username.trim().charAt(0).toUpperCase() || "?";
-}
 
 function getRelativeTime(dateString: string) {
   const date = new Date(dateString);
@@ -124,11 +126,14 @@ function getDuration(
 }
 
 export default function FriendsScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [userId, setUserId] = useState<number | null>(null);
 
+  const [leaders, setLeaders] = useState<{ id: number; username: string; rank: number; level: number; xp: number }[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [feed, setFeed] = useState<FeedWorkout[]>([]);
@@ -166,12 +171,15 @@ export default function FriendsScreen() {
           friendsData,
           requestsData,
           feedData,
+          leaderboardData,
         ] = await Promise.all([
           getFriends(id),
           getFriendRequests(id),
           getFriendsFeed(id),
+          getLeaderboard(),
         ]);
 
+        setLeaders(leaderboardData);
         setFriends(friendsData);
         setRequests(requestsData);
         setFeed(feedData);
@@ -191,9 +199,7 @@ export default function FriendsScreen() {
     [],
   );
 
-  useEffect(() => {
-    void Promise.resolve().then(() => loadData());
-  }, [loadData]);
+  useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -301,6 +307,10 @@ export default function FriendsScreen() {
           },
         ]}
       >
+        <View style={{ marginBottom: 24 }}>
+          <Text style={styles.title}>Leaderboard</Text>
+          {leaders.map((leader) => <Pressable key={leader.id} accessibilityLabel={`${leader.username}, rank ${leader.rank}`} style={{ paddingVertical: 12, minHeight: 48, flexDirection: "row", gap: 12 }} onPress={() => router.push({ pathname: "/user-profile", params: { userId: leader.id } })}><Text style={{ color: Colors.accent }}>#{leader.rank}</Text><Text style={{ color: Colors.text, flex: 1 }}>{leader.username}</Text><Text style={{ color: Colors.textMuted }}>Level {leader.level} · {leader.xp} XP</Text></Pressable>)}
+        </View>
         {/* Header */}
         <View style={styles.header}>
           <View>
@@ -383,9 +393,7 @@ export default function FriendsScreen() {
                     }
                   >
                     <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>
-                        {getInitial(user.username)}
-                      </Text>
+                      <Avatar uri={user.avatarData} name={user.displayName || user.username} />
                     </View>
 
                     <View style={styles.userInfo}>
@@ -444,11 +452,7 @@ export default function FriendsScreen() {
                   ]}
                 >
                   <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {getInitial(
-                        request.user.username,
-                      )}
-                    </Text>
+                    <Avatar uri={request.user.avatarData} name={request.user.displayName || request.user.username} />
                   </View>
 
                   <View style={styles.userInfo}>
@@ -543,7 +547,8 @@ export default function FriendsScreen() {
                   );
 
                 return (
-                  <View
+                  <Pressable
+                    onPress={() => router.push({ pathname: "/workout-detail", params: { workoutId: workout.id } })}
                     key={workout.id}
                     style={styles.workoutCard}
                   >
@@ -551,17 +556,7 @@ export default function FriendsScreen() {
                       <View
                         style={styles.workoutUser}
                       >
-                        <View style={styles.avatarSmall}>
-                          <Text
-                            style={
-                              styles.avatarSmallText
-                            }
-                          >
-                            {getInitial(
-                              workout.user.username,
-                            )}
-                          </Text>
-                        </View>
+                        <Avatar uri={workout.user.avatarData} name={workout.user.displayName || workout.user.username} size={36} />
 
                         <View>
                           <Text
@@ -684,7 +679,7 @@ export default function FriendsScreen() {
                         )}
                       </View>
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
@@ -768,11 +763,7 @@ export default function FriendsScreen() {
                   }
                 >
                   <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {getInitial(
-                        friend.username,
-                      )}
-                    </Text>
+                    <Avatar uri={friend.avatarData} name={friend.displayName || friend.username} />
                   </View>
 
                   <View style={styles.userInfo}>
@@ -802,7 +793,7 @@ export default function FriendsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,

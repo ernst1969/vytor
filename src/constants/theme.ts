@@ -30,7 +30,11 @@ export const Colors = {
   accent: "#B87333",
   tint: "#B87333",
   card: "#242424",
-} as const;
+};
+
+export const DarkPalette = { background: "#121212", surface: "#242424", border: "#3A3A3A", text: "#E6E2D8", textMuted: "#A6A39C", accent: "#B87333", tint: "#B87333", card: "#242424" };
+export const LightPalette: typeof DarkPalette = { background: "#FAF7F2", surface: "#FFFFFF", border: "#D8D1C7", text: "#231E19", textMuted: "#6F655B", accent: "#93531E", tint: "#93531E", card: "#FFFFFF" };
+export type AppPalette = typeof DarkPalette;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 

@@ -2,6 +2,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 const SESSION_TOKEN_KEY = "vytor_session_token";
+const sessionListeners = new Set<() => void>();
+export function onSessionChange(listener: () => void) { sessionListeners.add(listener); return () => { sessionListeners.delete(listener); }; }
+function notifySession() { for (const listener of sessionListeners) listener(); }
+
 
 async function fetch(input: string, init: RequestInit = {}) {
   const token = await AsyncStorage.getItem(SESSION_TOKEN_KEY);
@@ -11,7 +15,10 @@ async function fetch(input: string, init: RequestInit = {}) {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  return globalThis.fetch(input, { ...init, headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try { return await globalThis.fetch(input, { ...init, headers, signal: init.signal ?? controller.signal }); }
+  finally { clearTimeout(timeout); }
 }
 
 async function storeSession(data: { id: number; token?: string }) {
@@ -20,6 +27,7 @@ async function storeSession(data: { id: number; token?: string }) {
   if (data.token) {
     await AsyncStorage.setItem(SESSION_TOKEN_KEY, data.token);
   }
+  notifySession();
 }
 
 export type ExerciseMeasurementType =
@@ -39,6 +47,9 @@ export type Exercise = {
   name: string;
   description: string | null;
   measurementType: ExerciseMeasurementType;
+  ownerId?: number | null;
+  category?: string | null;
+  preferences?: ExercisePreference[];
 };
 
 export type TemplateExercise = {
@@ -51,6 +62,7 @@ export type WorkoutTemplate = {
   id: number;
   name: string;
   userId: number | null;
+  configuration?: Record<string, { targetReps?: number[]; setTypes?: WorkoutSetType[]; restSeconds?: number; notes?: string; weightUnit?: WeightUnit; distanceUnit?: DistanceUnit }>;
   exercises: TemplateExercise[];
 };
 
@@ -125,7 +137,10 @@ export async function logoutUser() {
   try {
     await fetch(`${API_URL}/api/logout`, { method: "POST" });
   } finally {
+    const userId = await AsyncStorage.getItem("vytor_user_id");
+    if (userId) await AsyncStorage.removeItem(`vytor_active_workout_${userId}`);
     await AsyncStorage.multiRemove(["vytor_user_id", SESSION_TOKEN_KEY, "vytor_active_workout"]);
+    notifySession();
   }
 }
 
@@ -172,11 +187,11 @@ export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
   return data;
 }
 
-export async function createWorkoutTemplate(name: string, exerciseIds: number[]): Promise<WorkoutTemplate> {
+export async function createWorkoutTemplate(name: string, exerciseIds: number[], configuration?: WorkoutTemplate["configuration"]): Promise<WorkoutTemplate> {
   const response = await fetch(`${API_URL}/api/templates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, exerciseIds }),
+    body: JSON.stringify({ name, exerciseIds, configuration }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
@@ -187,11 +202,12 @@ export async function updateWorkoutTemplate(
   templateId: number,
   name: string,
   exerciseIds: number[],
+  configuration?: WorkoutTemplate["configuration"],
 ): Promise<WorkoutTemplate> {
   const response = await fetch(`${API_URL}/api/templates/${templateId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, exerciseIds }),
+    body: JSON.stringify({ name, exerciseIds, configuration }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
@@ -243,9 +259,7 @@ export async function createWorkout(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.error || `Backend returned ${response.status}`,
-    );
+    throw Object.assign(new Error(data.error || `Backend returned ${response.status}`), { status: response.status });
   }
 
   return data;
@@ -266,6 +280,7 @@ export async function finishWorkout(
       setType?: WorkoutSetType;
     }[];
   }[],
+  revision: number,
 ) {
   const response = await fetch(
     `${API_URL}/api/workouts/${workoutId}/finish`,
@@ -275,7 +290,7 @@ export async function finishWorkout(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        exercises,
+        exercises, revision,
       }),
     },
   );
@@ -652,3 +667,14 @@ export async function removeFriend(friendId: number) {
   if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
   return data;
 }
+
+export type ExercisePreference = { notes: string; restSeconds: number; weightUnit: WeightUnit; distanceUnit: DistanceUnit };
+export async function request<T = any>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}/api${path}`, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const data = await response.json();
+  if (!response.ok) throw Object.assign(new Error(data.error || `Backend returned ${response.status}`), { status: response.status });
+  return data;
+}
+export const getWorkoutDetail = (id: number) => request(`/workouts/detail/${id}`);
+export const saveWorkoutDraft = (id: number, revision: number, draft: unknown, notes: string) => request<{ revision: number }>(`/workouts/${id}/draft`, "PUT", { revision, draft, notes });
+export const saveExercisePreferences = (id: number, data: ExercisePreference) => request(`/exercises/${id}/preferences`, "PUT", data);

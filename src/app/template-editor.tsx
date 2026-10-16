@@ -1,8 +1,8 @@
+import { useAppDialog } from "@/context/dialog-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,16 +12,21 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import {
   createWorkoutTemplate,
   getExercises,
   getWorkoutTemplates,
   updateWorkoutTemplate,
   type Exercise,
+  type WorkoutTemplate,
 } from "@/services/api";
 
 export default function TemplateEditorScreen() {
+  const { alert } = useAppDialog();
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
   const { templateId } = useLocalSearchParams<{ templateId?: string }>();
   const numericTemplateId = templateId ? Number(templateId) : null;
@@ -31,6 +36,7 @@ export default function TemplateEditorScreen() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [configuration, setConfiguration] = useState<NonNullable<WorkoutTemplate["configuration"]>>({});
 
   useEffect(() => {
     async function load() {
@@ -44,12 +50,13 @@ export default function TemplateEditorScreen() {
         if (numericTemplateId) {
           const template = templates.find((item) => item.id === numericTemplateId);
           if (!template || template.userId === null) {
-            Alert.alert("Template unavailable", "This template cannot be edited.", [
+            alert("Template unavailable", "This template cannot be edited.", [
               { text: "OK", onPress: () => router.back() },
             ]);
             return;
           }
           setName(template.name);
+          setConfiguration(template.configuration ?? {});
           setSelectedIds(
             [...template.exercises]
               .sort((a, b) => a.order - b.order)
@@ -57,14 +64,14 @@ export default function TemplateEditorScreen() {
           );
         }
       } catch (error) {
-        Alert.alert("Could not load template", error instanceof Error ? error.message : "Something went wrong.");
+        alert("Could not load template", error instanceof Error ? error.message : "Something went wrong.");
       } finally {
         setLoading(false);
       }
     }
 
     void load();
-  }, [numericTemplateId, router]);
+  }, [numericTemplateId, router, alert]);
 
   const filteredExercises = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -81,24 +88,24 @@ export default function TemplateEditorScreen() {
 
   async function save() {
     if (!name.trim()) {
-      Alert.alert("Name required", "Enter a name for the template.");
+      alert("Name required", "Enter a name for the template.");
       return;
     }
     if (selectedIds.length === 0) {
-      Alert.alert("Exercises required", "Select at least one exercise.");
+      alert("Exercises required", "Select at least one exercise.");
       return;
     }
 
     try {
       setSaving(true);
       if (numericTemplateId) {
-        await updateWorkoutTemplate(numericTemplateId, name, selectedIds);
+        await updateWorkoutTemplate(numericTemplateId, name, selectedIds, configuration);
       } else {
-        await createWorkoutTemplate(name, selectedIds);
+        await createWorkoutTemplate(name, selectedIds, configuration);
       }
       router.back();
     } catch (error) {
-      Alert.alert("Could not save template", error instanceof Error ? error.message : "Something went wrong.");
+      alert("Could not save template", error instanceof Error ? error.message : "Something went wrong.");
       setSaving(false);
     }
   }
@@ -138,6 +145,14 @@ export default function TemplateEditorScreen() {
             placeholderTextColor={Colors.textMuted}
           />
 
+          {selectedIds.map((id) => <View key={id} style={{ marginBottom: 16 }}>
+            <Text style={styles.exerciseName}>{exercises.find((item) => item.id === id)?.name}: target reps per set</Text>
+            <TextInput accessibilityLabel="Target reps separated by commas" style={styles.input} placeholder="e.g. 10,10,8" placeholderTextColor={Colors.textMuted} value={(configuration[String(id)]?.targetReps ?? [0]).join(",")} onChangeText={(value) => {
+              if (!/^[0-9,]*$/.test(value)) return;
+              const targets = value.split(",").slice(0, 30).map((entry) => Math.min(999, Number(entry)));
+              setConfiguration((current) => ({ ...current, [String(id)]: { ...current[String(id)], targetReps: targets, setTypes: targets.map((_, index) => current[String(id)]?.setTypes?.[index] ?? "REGULAR") } }));
+            }} />
+          </View>)}
           {filteredExercises.map((exercise) => {
             const selected = selectedIds.includes(exercise.id);
             const position = selectedIds.indexOf(exercise.id) + 1;
@@ -163,7 +178,7 @@ export default function TemplateEditorScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   header: {
     minHeight: 58,

@@ -2,7 +2,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
     ActivityIndicator,
-    Alert,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -11,32 +10,44 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import {
     useWorkout,
     type WorkoutExercise,
 } from "@/context/workout-context";
 import {
+  request,
   deleteWorkoutTemplate,
   getWorkoutTemplates,
   type WorkoutTemplate,
 } from "@/services/api";
 
 export default function WorkoutSetupScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
-  const { startWorkout, preferredWeightUnit, preferredDistanceUnit } = useWorkout();
+  const { reloadActiveWorkout, startWorkout, preferredWeightUnit, preferredDistanceUnit } = useWorkout();
 
   const [templates, setTemplates] = useState<
     WorkoutTemplate[]
   >([]);
 
+  const [suspended, setSuspended] = useState<{ id: number; startedAt: string; template?: { name: string } | null; _count: { exercises: number } }[]>([]);
+  const [resumeTarget, setResumeTarget] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<WorkoutTemplate | null>(null);
 
   async function loadTemplates() {
     try {
-      const data = await getWorkoutTemplates();
-      setTemplates(data);
+      const [data, drafts] = await Promise.all([getWorkoutTemplates(), request("/workouts/drafts/suspended")]);
+      setSuspended(drafts);
+      setTemplates(data); setError("");
     } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not load templates");
       console.error(
         "Failed to load workout templates:",
         error,
@@ -56,6 +67,8 @@ export default function WorkoutSetupScreen() {
   async function startTemplate(
     template: WorkoutTemplate,
   ) {
+    if (processing) return;
+    setProcessing(true);
     const exercises: WorkoutExercise[] =
       template.exercises
         .sort((a, b) => a.order - b.order)
@@ -65,20 +78,14 @@ export default function WorkoutSetupScreen() {
           name: item.exercise.name,
           description: item.exercise.description,
           measurementType: item.exercise.measurementType,
-          weightUnit: preferredWeightUnit,
-          distanceUnit: preferredDistanceUnit,
-          sets: [
-            {
-              id: `set-${item.exercise.id}-${Date.now()}-${Math.random()}`,
-              setNumber: 1,
-              weight: "",
-              reps: "",
-              distance: "",
-              durationSeconds: "",
-              completed: false,
-              setType: "REGULAR",
-            },
-          ],
+          notes: template.configuration?.[String(item.exercise.id)]?.notes ?? item.exercise.preferences?.[0]?.notes,
+          restSeconds: template.configuration?.[String(item.exercise.id)]?.restSeconds ?? item.exercise.preferences?.[0]?.restSeconds,
+          weightUnit: template.configuration?.[String(item.exercise.id)]?.weightUnit ?? item.exercise.preferences?.[0]?.weightUnit ?? preferredWeightUnit,
+          distanceUnit: template.configuration?.[String(item.exercise.id)]?.distanceUnit ?? item.exercise.preferences?.[0]?.distanceUnit ?? preferredDistanceUnit,
+          sets: (template.configuration?.[String(item.exercise.id)]?.targetReps ?? [0]).map((target, index) => ({
+            id: `set-${item.exercise.id}-${index}-${Date.now()}`, setNumber: index + 1,
+            weight: "", reps: "", targetReps: target ? String(target) : "", distance: "", durationSeconds: "", completed: false, setType: template.configuration?.[String(item.exercise.id)]?.setTypes?.[index] ?? "REGULAR",
+          })),
         }));
 
     try {
@@ -89,33 +96,24 @@ export default function WorkoutSetupScreen() {
 
       router.replace("/");
     } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not start workout");
       console.error(
         "Failed to start workout:",
         error,
       );
-    }
+    } finally { setProcessing(false); }
   }
 
   function startFreestyle() {
     router.push("/exercise-picker?mode=freestyle");
   }
 
-  function confirmDelete(template: WorkoutTemplate) {
-    Alert.alert("Delete template?", `Delete “${template.name}”?`, [
-      { text: "Keep", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          void deleteWorkoutTemplate(template.id)
-            .then(loadTemplates)
-            .catch((error) => Alert.alert(
-              "Could not delete template",
-              error instanceof Error ? error.message : "Something went wrong.",
-            ));
-        },
-      },
-    ]);
+  async function confirmDelete() {
+    if (!deleteTarget || processing) return;
+    setProcessing(true);
+    try { await deleteWorkoutTemplate(deleteTarget.id); setDeleteTarget(null); await loadTemplates(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete template"); setDeleteTarget(null); }
+    finally { setProcessing(false); }
   }
 
   if (loading) {
@@ -159,6 +157,7 @@ export default function WorkoutSetupScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
         >
+          {suspended.length > 0 && <><Text style={styles.sectionTitle}>PAUSED WORKOUTS</Text>{suspended.map((draft) => <Pressable key={draft.id} style={styles.templateCard} onPress={() => setResumeTarget(draft.id)}><Text style={styles.cardTitle}>{draft.template?.name ?? "Workout"} · {new Date(draft.startedAt).toLocaleDateString()} · {draft._count.exercises} exercises ›</Text></Pressable>)}</>}
           <Text style={styles.sectionTitle}>
             FREESTYLE
           </Text>
@@ -191,6 +190,8 @@ export default function WorkoutSetupScreen() {
             <Text style={styles.createButtonText}>+ CREATE TEMPLATE</Text>
           </Pressable>
 
+          {!!error && <><Text accessibilityRole="alert" style={styles.deleteText}>{error}</Text><Pressable style={styles.actionButton} onPress={() => void loadTemplates()}><Text style={styles.actionText}>Retry</Text></Pressable></>}
+          {!templates.length && <Text style={styles.cardSubtitle}>No saved presets yet. Create a template or save your active workout.</Text>}
           {templates.map((template) => (
             <View
               key={template.id}
@@ -228,9 +229,9 @@ export default function WorkoutSetupScreen() {
                       style={styles.actionButton}
                       onPress={() => router.push({ pathname: "/template-editor", params: { templateId: template.id } })}
                     >
-                      <Text style={styles.actionText}>EDIT</Text>
+                      <Text style={styles.actionText}>⚙ EDIT</Text>
                     </Pressable>
-                    <Pressable style={styles.actionButton} onPress={() => confirmDelete(template)}>
+                    <Pressable style={styles.actionButton} onPress={() => setDeleteTarget(template)}>
                       <Text style={styles.deleteText}>DELETE</Text>
                     </Pressable>
                   </>
@@ -243,11 +244,13 @@ export default function WorkoutSetupScreen() {
           ))}
         </ScrollView>
       </View>
+      <ConfirmDialog visible={deleteTarget !== null} busy={processing} title="Delete template?" message={`Delete “${deleteTarget?.name ?? ""}”? Existing workouts are preserved.`} onCancel={() => setDeleteTarget(null)} onConfirm={() => void confirmDelete()} confirmLabel="Delete" />
+      <ConfirmDialog visible={resumeTarget !== null} busy={processing} title="Resume this workout?" message="Your currently active workout will be paused and retained. Unsynced edits on another device must be synchronized before switching." onCancel={() => setResumeTarget(null)} onConfirm={() => { if (!resumeTarget || processing) return; setProcessing(true); void request(`/workouts/${resumeTarget}/resume`, "POST").then(reloadActiveWorkout).then(() => router.replace("/")).catch((cause) => setError(cause.message)).finally(() => { setProcessing(false); setResumeTarget(null); }); }} confirmLabel="Resume" />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: Colors.background,
@@ -326,7 +329,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1,
-    borderColor: Colors.accent,
+    borderColor: "transparent",
     borderRadius: 7,
     backgroundColor: Colors.surface,
   },

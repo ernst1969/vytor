@@ -8,13 +8,16 @@ import {
   useSegments,
 } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View, useColorScheme } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 
+import { AppDialogProvider } from "@/context/dialog-context";
+import { AppThemeProvider, useAppTheme } from "@/context/theme-context";
 import { WorkoutProvider } from "@/context/workout-context";
 import { getUser } from "@/services/api";
 
 function AppNavigator() {
-  const colorScheme = useColorScheme();
+  const { dark, colors } = useAppTheme();
+  const colorScheme = dark ? "dark" : "light";
   const router = useRouter();
   const segments = useSegments();
 
@@ -89,7 +92,7 @@ function AppNavigator() {
 
   return (
     <ThemeProvider
-      value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+      value={{ ...(dark ? DarkTheme : DefaultTheme), colors: { ...(dark ? DarkTheme : DefaultTheme).colors, background: colors.background, card: colors.surface, text: colors.text, primary: colors.accent, border: colors.border } }}
     >
       <Stack screenOptions={{ headerShown: false }} />
     </ThemeProvider>
@@ -98,8 +101,8 @@ function AppNavigator() {
 
 export default function RootLayout() {
   return (
-    <WorkoutProvider>
+    <AppThemeProvider><AppDialogProvider><WorkoutProvider>
       <AppNavigator />
-    </WorkoutProvider>
+    </WorkoutProvider></AppDialogProvider></AppThemeProvider>
   );
 }

@@ -55,6 +55,9 @@ model User {
   restSeconds            Int          @default(90)
   theme                  AppTheme     @default(SYSTEM)
 
+  customExercises Exercise[]
+  exercisePreferences ExercisePreference[]
+  feedback Feedback[]
   workouts Workout[]
   workoutTemplates WorkoutTemplate[]
   sessions Session[]
@@ -83,6 +86,12 @@ model Exercise {
   description String?
   measurementType ExerciseMeasurementType @default(WEIGHT_REPS)
 
+  ownerId Int?
+  category String?
+  archived Boolean @default(false)
+  owner User? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  preferences ExercisePreference[]
+
   workoutExercises         WorkoutExercise[]
   workoutTemplateExercises WorkoutTemplateExercise[]
 }
@@ -91,6 +100,7 @@ model WorkoutTemplate {
   id        Int      @id @default(autoincrement())
   name      String
   createdAt DateTime @default(now())
+  configuration Json?
   userId    Int?
 
   exercises WorkoutTemplateExercise[]
@@ -119,6 +129,10 @@ model Workout {
   startedAt  DateTime  @default(now())
   endedAt    DateTime?
   templateId Int?
+  suspended Boolean @default(false)
+  notes String @default("")
+  draft Json?
+  revision Int @default(0)
 
   user     User             @relation(fields: [userId], references: [id])
   template WorkoutTemplate? @relation(fields: [templateId], references: [id])
@@ -184,10 +198,32 @@ model FriendRequest {
   status     FriendRequestStatus @default(PENDING)
   createdAt  DateTime            @default(now())
 
+  updatedAt DateTime @default(now()) @updatedAt
+
   requester User @relation("requester", fields: [requesterId], references: [id], onDelete: Cascade)
   recipient User @relation("recipient", fields: [recipientId], references: [id], onDelete: Cascade)
 
   @@unique([requesterId, recipientId])
   @@index([recipientId, status])
   @@index([requesterId, status])
+}
+
+model ExercisePreference {
+  userId Int
+  exerciseId Int
+  notes String @default("")
+  restSeconds Int?
+  weightUnit WeightUnit @default(KG)
+  distanceUnit DistanceUnit @default(KM)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  @@id([userId, exerciseId])
+}
+
+model Feedback {
+  id Int @id @default(autoincrement())
+  userId Int
+  message String
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

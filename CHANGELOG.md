@@ -2,6 +2,47 @@
 
 Alle wesentlichen Änderungen an Vytor werden in dieser Datei dokumentiert.
 
+## 2026-10-16 – TODO-Umsetzung
+
+### Added
+
+- Versionierte Workout-Entwürfe mit kontoabhängigem Offline-Cache, Wiederholungsversuchen, Wiederherstellung nach Login und expliziter Geräte-Konfliktauflösung.
+- Partieller Datenbankindex gegen parallele aktive Workouts; atomarer Übungsersatz. Ältere doppelte offene Trainings bleiben als wiederaufnehmbare pausierte Entwürfe erhalten.
+- Workout-Notizen, dauerhafte persönliche Form-Cues sowie gespeicherte Einheiten und Pausen je Übung.
+- Persönliche Übungen mit Editor, Kategorie, Messart und historienerhaltender Archivierung.
+- Presets auf Basis bestehender Vorlagen inklusive Zielen je Satz, Satztypen, Einheiten und Pausen.
+- Freie Timer, validierte Zifferneingabe für `hh:mm:ss`, Einfügen einzelner Sätze und Drop-Set-Verbindungen.
+- Ergebnisansicht mit Gesamt-/Übungs-XP, Levelbalken, Epley-1RM und Verbesserungen gegenüber früheren Trainings.
+- XP-Ränge Bronze/Silver/Gold/Platinum/Diamond und eigenständig erstellte Muskelübersicht für direkte/indirekte Belastung.
+- Zentrales Hell-/Dunkel-/System-Theme, plattformübergreifende Bestätigungsdialoge und Avatar-Fallback.
+- Feedbackeingang mit Datenschutzhinweis, Passwortänderung mit Session-Widerruf und bestätigte Kontolöschung.
+- Acht Unit-/Logiktests, isolierte PostgreSQL-/HTTP-Integrationssuite, GitHub-Checks, EAS-Profile und manuelle Release-Testmatrix.
+
+### Changed
+
+- Start- und Finish-/Verwerfen-Aktionen bleiben am unteren Bildschirmrand erreichbar; Übung hinzufügen steht oben rechts.
+- Leaderboard steht im Friends-Tab; das eigene Profil trennt „Level X“, XP-Rang und globalen Rang.
+- Workout-Details werden gezielt geladen und für Besitzer sowie bestätigte Freunde freigegeben; andere Profile verlinken die eigene Trainingsübersicht.
+- Die alte Starter-Vorlage wird aus der Auswahl ausgeblendet; globale Vorlagen bleiben geschützt.
+- Einheiten stehen direkt hinter den Eingaben und werden in Übungsoptionen gewählt; Settings bieten eine freie Standardpause.
+- Bildauswahl fordert keine Kamera-/Mikrofonberechtigungen mehr an.
+
+### Fixed
+
+- Freundschaftsanfragen scheitern nicht mehr am fehlenden Prisma-Pflichtfeld `updatedAt`; konkurrierende Anfragen werden je Nutzerpaar serialisiert.
+- Historische Messartenmigration verwendet das gewählte Schema, konvertiert `MILES` korrekt und erhält vorhandene Messarten.
+- Übungslöschung und Sortierung melden Backend-Fehler sichtbar; Übungsersatz verliert bei Fehlern keine ursprüngliche Übung.
+- Profilbilder werden in öffentlichen Profilen und Freundeslisten angezeigt; Profilrahmen sind rund.
+- Freestyle-Suchfeld lässt sich leeren, Auswahl lässt sich zurücknehmen, selbst erstellte Übungen erscheinen nach Rückkehr im Picker.
+- Leere Abschlüsse vergeben keine XP; Einheiten, doppelte Sätze, veraltete Versionen und Vorlagenkonfigurationen werden geprüft.
+- Unfertige lokale Änderungen werden beim Neustart nicht stillschweigend durch Serverdaten überschrieben.
+
+### Validation
+
+- Lint, App-/Server-Typecheck, Unit-Tests, vollständige Migrationskette/Seed und echte API-Tests gegen PostgreSQL geprüft.
+- Expo Doctor: 21/21 Prüfungen erfolgreich. Additive Migration auf der lokalen Entwicklungsdatenbank angewendet.
+- Expo-Export für iOS, Android und Web erfolgreich; manuelle Geräte- und Store-Abnahmen bleiben ausdrücklich offen.
+
 ## 2026-10-16
 
 ### Added

@@ -1,72 +1,40 @@
 # Vytor
 
-Vytor ist eine mobile Trainings-App für iOS und Android mit zusätzlichem Web-Ziel. Sie verbindet Workout-Tracking mit Trainingshistorie und Freundschaftsfunktionen. Dieses Dokument beschreibt den untersuchten Repository-Stand vom 16. Oktober 2026 und dient als Einstieg für zukünftige Entwicklungsarbeit. Verbindliche Arbeitsregeln stehen in [AGENTS.md](AGENTS.md).
+Mobile Trainings-App für iOS und Android mit Web-Ziel. Stand: 16. Oktober 2026. Arbeitsregeln: [AGENTS.md](AGENTS.md), Aufgaben: [TODO.md](TODO.md), Änderungen: [CHANGELOG.md](CHANGELOG.md).
 
-Die priorisierten nächsten Arbeitsschritte stehen in [TODO.md](TODO.md); abgeschlossene Änderungen werden im [CHANGELOG.md](CHANGELOG.md) dokumentiert.
+## Funktionen
 
-## Funktionsumfang
+- Sessions mit Login, Registrierung und Abmeldung; bearbeitbare Profile mit Bild, Anzeigename und eindeutigem `@username`.
+- Freestyle-Workouts und persönliche Vorlagen als wiederverwendbare Presets. Presets speichern Zielwiederholungen, Satztypen, Einheiten, Pausen und Form-Cues. Die alte globale Starter-Vorlage wird nicht mehr angeboten.
+- Feste Start-/Finish-/Verwerfen-Aktionen, Bestätigungen und eine Liste unfertiger Sätze vor dem Abschluss.
+- Regular-, Warm-up- und Drop-Sätze; Satz direkt einfügen oder löschen, Ziele und Ghost-Werte aus dem letzten Training. Drop-Sätze stehen direkt unter ihrem Ursprung und zählen nicht als zusätzliche reguläre Satznummer.
+- Fünf Messarten, Einheiten pro Übung, freie Pausendauer, direkte Timer-Eingabe und Zeitdarstellung `hh:mm:ss`. Zifferneingabe `123` bedeutet `00:01:23`; Minuten und Sekunden müssen kleiner als 60 sein.
+- Workout-Notizen und dauerhafte persönliche Form-Cues; eigene Übungen erstellen, bearbeiten und archivieren. Messarten eigener Übungen bleiben nach Erstellung fest, damit Historie interpretierbar bleibt.
+- Workout-Historie und gezielte Detailabfrage, Ergebnisansicht mit Gesamt-/Satz-XP, Levelbalken, geschätztem 1RM und Verbesserungen gegenüber früheren Trainings.
+- Freundschaftsanfragen, Freundesfeed und Profilbilder mit Initialen-Fallback. Vollständige Workout-Details sehen der Besitzer und bestätigte Freunde. Andere Profile verlinken die eigene Trainingsübersicht.
+- Globale Rangliste im Friends-Tab, eigener globaler Rang im Profil und XP-Ränge: Bronze ab 0, Silver ab 1.000, Gold ab 5.000, Platinum ab 15.000, Diamond ab 40.000 XP.
+- Eigenständig erstellte Muskelübersicht ohne fremde Grafikassets. Sie schätzt direkte/indirekte Belastung anhand von Übungsnamen und zeigt die letzten sieben Tage; unbekannte Übungen werden ausgelassen.
+- Helles, dunkles und systemabhängiges Theme; Feedback, Passwortänderung und bestätigte Kontolöschung in Settings.
 
-- Registrierung und Anmeldung mit Benutzername und Passwort; lokale Speicherung der Benutzer-ID.
-- Workouts aus einer Vorlage oder einer eigenen Übungsauswahl starten.
-- Übungen und Sätze bearbeiten, Sätze abschließen, Pausentimer nutzen und frühere Übungswerte anzeigen.
-- Trainingshistorie, Workout-Details und Profilansichten.
-- Benutzersuche, Freundschaftsanfragen, Freundesliste und Trainingsfeed.
-- Einstellungen mit Abmeldung.
+## Technik
 
-Die Funktionen sind im Code angelegt. Der aktuelle Stand hat bekannte Integrations- und Typfehler; die Aufzählung ist keine Zusicherung, dass alle Abläufe fehlerfrei funktionieren.
-
-## Technik und Aufbau
-
-| Bereich | Umsetzung |
-| --- | --- |
-| App | Expo SDK 57 (`expo: ~57.0.30`), React 19.2.3, React Native 0.86.3, TypeScript 6 |
-| Navigation | Expo Router, Einstieg über `expo-router/entry`, Routen in `src/app/` |
-| Zustand | React Context für aktive Workouts; AsyncStorage für `vytor_user_id` |
-| Darstellung | React-Native-Komponenten und StyleSheet, Farben in `src/constants/theme.ts` |
-| Backend | Express 5, TypeScript, Entwicklung mit `tsx watch` |
-| Datenbank | PostgreSQL, Prisma 7 mit `@prisma/adapter-pg` |
-| Passwörter | Hashing mit `bcryptjs` |
-| Paketverwaltung | npm; getrennte `package-lock.json` im Root und in `server/`, kein Bun-Lockfile |
+Expo SDK 57, React 19, React Native 0.86, TypeScript 6, Expo Router; Express 5, Prisma 7 und PostgreSQL. npm installiert App und Server getrennt. Native Verzeichnisse werden durch Expo generiert und nicht von Hand gepflegt.
 
 ```text
-src/
-  app/                      Screens und Router-Layouts
-    _layout.tsx             WorkoutProvider, Benutzerprüfung, Stack und Navigationstheme
-    index.tsx               Einstieg in die Tabs
-    (tabs)/                 Home, Friends, Profile, Settings; Workout-Header
-    create-user.tsx         Registrierung
-    login.tsx               Anmeldung
-    workout-setup.tsx       Vorlagen und Trainingsstart
-    exercise-picker.tsx     Übungsauswahl und Austausch
-    workout-detail.tsx      Details eines Trainings
-    user-profile.tsx        Profil eines anderen Benutzers
-    explore.tsx             Zusätzliche Route aus dem Starter-Kontext
-  context/workout-context.tsx  Aktives Training, Sätze, Einheiten und Pausen
-  services/api.ts           HTTP-Aufrufe und API-Typen; aktuell feste Backend-Adresse
-  components/               UI-Bausteine, teilweise mit .web.tsx-Varianten
-  constants/theme.ts        Farben, Schriften und Abstände
-  hooks/                    Theme- und Farbschema-Hooks
-  global.css                Web-Stile
-server/
-  src/index.ts              Sämtliche Express-Endpunkte und Geschäftslogik
-  prisma/schema.prisma      Deklaratives Datenmodell
-  prisma/migrations/        SQL-Migrationshistorie
-  prisma/seed.ts            Übungskatalog und „Starter Workout“
-  prisma.config.ts          Schema-/Migrationspfade und DATABASE_URL
-assets/                     Icons, Bilder und Expo-Assets
-app.json                    Expo-Konfiguration
-scripts/reset-project.js    Setzt den App-Code auf einen leeren Starter zurück
+src/app/                  Screens und Router-Layouts
+src/context/              Workout-Zustand, Sessionsignale und Theme
+src/components/           Dialoge, Avatar-Fallback, Muskelübersicht und UI
+src/services/api.ts       Bearer-Client mit Request-Timeout
+src/utils/                Dauer, Muskelzuordnung und Offline-Abgleich
+server/src/               API, Fortschrittsregeln, Validierung und Unit-Tests
+server/prisma/            Schema, Migrationen und Übungskatalog
+server/scripts/           Isolierter PostgreSQL-/HTTP-Integrationstest
+.github/workflows/        Lint, Typechecks, Tests und Plattformexport
 ```
 
-Es gibt keine npm-Workspace-Konfiguration: App und Server werden separat installiert und gestartet. Native Verzeichnisse `ios/` und `android/` sind nicht eingecheckt. Eine `eas.json` und CI-Konfiguration sind nicht vorhanden. Serverseitige Tests laufen mit `npm test`.
+## Lokal starten
 
-## Lokal einrichten
-
-Voraussetzungen: Node.js mit npm, eine zur eingesetzten Expo-Version passende Node-Version, eine erreichbare PostgreSQL-Instanz und ein Mobilgerät bzw. Simulator/Emulator oder Browser. Im Repository ist keine Node-Version festgeschrieben.
-
-### 1. Abhängigkeiten installieren
-
-Im Projektverzeichnis:
+Node.js 24, npm und PostgreSQL werden benötigt. Es gibt keine npm-Workspaces und kein Bun-Lockfile.
 
 ```bash
 npm ci
@@ -74,17 +42,20 @@ cd server
 npm ci
 ```
 
-### 2. Datenbank konfigurieren
-
-In `server/.env` eine eigene Verbindungsadresse hinterlegen, beispielsweise:
+`.env.example` nach `.env` und `server/.env.example` nach `server/.env` kopieren und lokal anpassen. Keine Zugangsdaten committen.
 
 ```dotenv
-DATABASE_URL="postgresql://vytor:password@localhost:5432/vytor?schema=public"
+# Root .env: auf echten Geräten eine erreichbare LAN-Adresse verwenden
+EXPO_PUBLIC_API_URL=http://192.168.1.100:3000
 ```
 
-Dies ist ein Beispiel, kein vorhandener Zugang. PostgreSQL, Datenbank und Benutzer müssen zuvor eingerichtet sein. Zugangsdaten gehören nicht ins Repository; `.env` ist ignoriert. Der Server und Prisma laden die Variable über `dotenv/config`, daher Server-Kommandos aus `server/` ausführen.
+```dotenv
+# server/.env
+DATABASE_URL=postgresql://vytor:password@localhost:5432/vytor?schema=public
+PORT=3000
+```
 
-Danach sind aus `server/` die vorgesehenen Schritte:
+Aus `server/`:
 
 ```bash
 npx prisma migrate deploy
@@ -93,104 +64,83 @@ npx tsx prisma/seed.ts
 npm run dev
 ```
 
-Der Seed legt Übungen per Name an oder aktualisiert sie und baut die Übungszuordnung der Vorlage „Starter Workout“ neu auf. Ein Seed-Kommando ist in `prisma.config.ts` derzeit nicht registriert.
-
-Für neue, beabsichtigte Schemaänderungen auf einer Entwicklungsdatenbank `npx prisma migrate dev --name <name>` verwenden. Bestehende Migrationen und Datenbankzustand zuvor prüfen; `prisma generate` generiert aus dem aktuellen Schema und behebt dessen Abweichungen zu SQL und Anwendungscode nicht.
-
-### 3. Backend-Adresse und App starten
-
-Die App liest die öffentliche Expo-Variable:
-
-```dotenv
-EXPO_PUBLIC_API_URL=http://192.168.1.100:3000
-```
-
-Die Beispiele stehen in `.env.example` und `server/.env.example`. Die Adresse an den Entwicklungsrechner anpassen. Ein echtes Smartphone muss den Rechner erreichen können, typischerweise im selben WLAN; `localhost` auf dem Smartphone bezeichnet das Smartphone selbst. Der Server hört an `0.0.0.0` und verwendet `PORT`, standardmäßig `3000`.
-
-In einem zweiten Terminal im Projektverzeichnis:
+Aus dem Root in einem zweiten Terminal:
 
 ```bash
 npm start
+# Alternativ: npm run android / npm run ios / npm run web
 ```
 
-Weitere vorhandene Startskripte:
+`GET /api/health` prüft Express-Erreichbarkeit. Private API-Routen benötigen eine 30 Tage gültige Bearer-Session. `EXPO_PUBLIC_*` enthält ausschließlich öffentliche Konfiguration, keine Geheimnisse.
 
-```bash
-npm run android
-npm run ios
-npm run web
+## Speicherung und Gerätewechsel
+
+Ein partieller PostgreSQL-Unique-Index erlaubt nur ein aktives, nicht pausiertes Workout je Konto. Home setzt nach Login ein vorhandenes Server-Workout fort; konkurrierende Starts erhalten HTTP 409. Übungen können hinzugefügt, entfernt, atomar ersetzt und umgeordnet werden.
+
+Sätze, Notizen, Einheiten, Form-Cues und das absolute Timer-Ende werden lokal pro Konto gespeichert. Änderungen werden nach 800 ms als versionierter Entwurf synchronisiert; fehlgeschlagene Übertragungen werden alle 15 Sekunden erneut versucht. Ein Timeout beendet hängende Requests nach 15 Sekunden.
+
+Der Server akzeptiert nur die erwartete Entwurfsversion und die aktuelle Übungsliste. Bei konkurrierenden Änderungen bleiben lokale Daten erhalten und die App zeigt einen Konflikt. „Reload server workout“ ersetzt lokale Änderungen nach ausdrücklicher Bestätigung. Bereits bestätigte lokale Daten werden beim Neustart durch den aktuellen Serverstand ersetzt; ungesendete Daten mit passender Basisversion werden weiter synchronisiert.
+
+Bei schlechter Verbindung können Sätze eines bereits gestarteten Workouts lokal weiter bearbeitet werden. Trainingsstart, strukturelle Übungsänderungen, Abschluss und Verwerfen benötigen eine Verbindung; dafür gibt es keine vollständige Offline-Warteschlange. Andere Geräte sehen den zuletzt bestätigten Serverentwurf. Passwortänderung beendet alle Sessions; Logout entfernt den Entwurf dieses Geräts und beendet dessen Session.
+
+Gewichte werden als kg, Distanzen als km und Zeiten als Sekunden gespeichert. Anzeige und Einheitenwechsel rechnen um. Abschluss, Satzdaten und XP sind transaktional; 100 Basis-XP plus 10 XP pro abgeschlossenem Nicht-Warm-up-Satz werden einmalig vergeben. 1RM nutzt die Epley-Schätzung und ist entsprechend gekennzeichnet.
+
+## Datenbankänderungen
+
+Die Migration `20261016190000_complete_training_features` ergänzt Entwürfe, Versionen, Notizen, persönliche Übungseinstellungen, eigene Übungen und Feedback. Sie repariert auch das bisher im Modell fehlende Pflichtfeld `FriendRequest.updatedAt`, das neue Freundschaftsanfragen verhinderte.
+
+Die historische Messartenmigration wurde für eine saubere Wiederholung korrigiert: kein festes `public`-Schema, `MILES` → `MI`, Erhalt vorhandener Messarten. Bereits angewendete Installationen benötigen dafür keinen Reset. Bei Entwicklungsdatenbanken kann Prisma die geänderte historische Prüfsumme melden; keinen automatischen Reset einer Datenbank mit Nutzerdaten bestätigen. Die neue additive Migration ist der Upgrade-Pfad; ein Baseline-Abgleich bestehender Installationen bleibt eine bewusste Wartungsaktion.
+
+Wenn bereits mehrere offene Workouts für ein Konto existieren, bleibt das neueste aktiv. Ältere werden ohne Datenverlust als pausierte Workouts erhalten. „PAUSED WORKOUTS“ in der Vorlagenauswahl bietet sie zur bestätigten Wiederaufnahme an; dabei wird das bisher aktive Training ebenfalls erhalten und pausiert. Die Migration schreibt keine erfundenen Abschlüsse in die Historie.
+
+Feedback wird mit Konto-ID und Zeitpunkt in der Tabelle `Feedback` an den internen Teameingang zugestellt. Es gibt keinen externen E-Mail-Versand. Betreiber können den Eingang über die Datenbank auswerten:
+
+```sql
+SELECT "id", "userId", "message", "createdAt"
+FROM "Feedback" ORDER BY "createdAt" DESC;
 ```
 
-Backend prüfen:
+Kontolöschung entfernt Workouts, Vorlagen, Sessions, XP-Ereignisse, persönliche Einstellungen, Feedback und Freundschaften. Eigene Übungen werden archiviert; vorhandene Referenzen und ihre historischen Messarten bleiben erhalten.
+
+## Prüfungen
+
+Aus dem Root:
 
 ```bash
-curl http://localhost:3000/api/health
-```
-
-Der Health-Endpunkt bestätigt nur, dass Express antwortet; er prüft keine Datenbankverbindung. Ein vollständiger Lauf mit Datenbank und Endgerät wurde für diese Analyse nicht durchgeführt.
-
-## Datenfluss und wichtige Verträge
-
-1. Registrierung oder Login erstellen eine 30 Tage gültige serverseitige Session. Die App speichert Benutzer-ID und Bearer-Token lokal.
-2. Das Root-Layout prüft die Session über `getUser`. Nur eine ungültige/abgelaufene Session entfernt die lokale Anmeldung; ein vorübergehender Netzwerkfehler tut dies nicht.
-3. `WorkoutProvider` erstellt beim Trainingsstart ein Backend-Workout und hält aktive Übungen, Satzwerte, Startzeit und Pausenende im React-Zustand.
-4. Vorherige Sätze werden über den Endpunkt für das letzte abgeschlossene Training der jeweiligen Übung geladen.
-5. Beim Trainingsabschluss sendet der Context nur als abgeschlossen markierte Sätze. Das Backend speichert Satzdaten und setzt `endedAt`; die Historie enthält abgeschlossene Workouts.
-
-Aktive Trainingsdaten werden lokal gesichert und mit dem noch offenen Backend-Workout abgeglichen. Hinzufügen, Entfernen, Ersetzen und Umordnen werden im Backend synchronisiert; ein Workout kann ausdrücklich verworfen werden.
-
-Die Anwendung verwendet `WEIGHT_REPS`, `REPS`, `DISTANCE_TIME`, `TIME` und `WEIGHT_DISTANCE`. Gewichte werden beim Abschluss nach Kilogramm, Distanzen nach Kilometern normalisiert; Zeiten werden als Sekunden gespeichert. Änderungen an Einheiten müssen Eingabe, Speicherung und Historienanzeige gemeinsam berücksichtigen.
-
-Das relationale Modell umfasst Benutzer, Übungen, Workout-Vorlagen mit geordneten Übungen, Workouts mit geordneten Übungen und Sätzen sowie Freundschaftsanfragen. `endedAt = null` kennzeichnet ein noch nicht abgeschlossenes Workout. Übungszuordnungen und Satznummern besitzen zusammengesetzte Eindeutigkeitsregeln.
-
-### API-Übersicht
-
-Alle Routen stehen in `server/src/index.ts`; der App-Client liegt in `src/services/api.ts`.
-
-| Methode | Pfad | Zweck |
-| --- | --- | --- |
-| GET | `/api/health` | Erreichbarkeit |
-| POST | `/api/users`, `/api/login` | Registrierung und Anmeldung |
-| GET | `/api/users/search` | Suche mit `query` und `userId` |
-| GET | `/api/users/:id`, `/api/users/:id/public` | Benutzer und öffentliches Profil |
-| GET | `/api/exercises`, `/api/templates` | Übungskatalog und Vorlagen |
-| POST | `/api/workouts` | Training mit `userId`, optionaler Vorlage und Übungen erstellen |
-| POST | `/api/workouts/:id/exercises` | Übung hinzufügen |
-| PATCH | `/api/workout-exercises/:id/settings` | Einheiten einer Übungszuordnung ändern |
-| POST | `/api/workouts/:id/finish` | Sätze speichern und Training beenden |
-| GET | `/api/workouts/:userId` | Abgeschlossene Trainings |
-| GET | `/api/exercises/:exerciseId/last-workout` | Vorherige Übungswerte, mit `userId` |
-| GET | `/api/friends/:userId` | Freunde |
-| GET | `/api/friends/:userId/requests` | Offene Anfragen |
-| POST | `/api/friends/request` | Anfrage mit `requesterId` und `recipientId` |
-| POST | `/api/friends/requests/:id/accept`, `/api/friends/requests/:id/reject` | Anfrage beantworten, mit `userId` |
-| GET | `/api/friends/:userId/feed` | Trainingsfeed |
-
-Private API-Routen verlangen eine serverseitig gespeicherte Bearer-Session. Ressourcen werden gegen den angemeldeten Benutzer geprüft.
-
-## Prüfstand
-
-Bei der Analyse ausgeführte Prüfungen:
-
-```bash
-npx expo lint
+npm run lint
 npx tsc --noEmit
 npx tsc --noEmit -p server/tsconfig.json
-cd server && npm test
+npx expo-doctor
+npx expo export --platform all --output-dir /tmp/vytor-export
+```
+
+Aus `server/`:
+
+```bash
+npm test
+npm run test:integration
 npx prisma validate
 ```
 
-Diese Prüfungen bestehen im aktuellen Stand. Das Migrationsschema wurde zusätzlich offline aus einem leeren Schema erzeugt. Eine echte PostgreSQL-Migration und Endgeräteprüfung benötigen eine konfigurierte Datenbank beziehungsweise Geräte und bleiben Teil der Release-Prüfung.
+Die additive Migration wurde auf der lokalen Entwicklungsdatenbank erfolgreich angewendet.
 
-## Regeln für zukünftige Arbeit
+Der Integrationstest benötigt eine erreichbare `DATABASE_URL` sowie Rechte zum Erstellen/Löschen eines Schemas. Er legt ein eindeutig benanntes Testschema an, spielt sämtliche Migrationen und den Seed ein, startet einen separaten API-Prozess und prüft echte HTTP-Aufrufe. Danach entfernt er ausschließlich das Testschema. `DATABASE_SCHEMA` steuert dabei das Prisma-Adapter-Schema; im normalen Betrieb ist es `public`.
 
-- Zu Beginn `AGENTS.md`, diese README, `package.json` und den Git-Status lesen. Versionsangaben und bekannte Probleme bei relevanten Änderungen aktualisieren.
-- Vor Änderungen an Expo-, React-Native- oder EAS-APIs die installierte Expo-Hauptversion bestimmen und die [passenden SDK-57-Dokumente](https://docs.expo.dev/versions/v57.0.0/) abrufen. Für weitere Expo-Themen zuerst den [Dokumentationsindex](https://docs.expo.dev/llms.txt) lesen und dessen Links folgen.
-- Screens und Layouts in `src/app/` halten; wiederverwendbare Komponenten, Hooks und Hilfsfunktionen außerhalb des Routenverzeichnisses ablegen. Navigation über Expo Router umsetzen.
-- Mobile Bedienung, Tastatur, Safe Areas, Leistung und plattformübergreifendes Verhalten berücksichtigen. Vorhandene Web-Varianten beachten.
-- App-Abhängigkeiten mit `npx expo install <package>` ergänzen, damit SDK-kompatible Versionen aufgelöst werden. Bei einem späteren Wechsel zu Bun mit `bun.lock` gemäß `AGENTS.md` `bunx` verwenden.
-- Native Konfiguration in `app.json` und Config-Plugins vornehmen; generierte native Verzeichnisse nicht von Hand anlegen oder ändern. Neue native Bibliotheken können einen Development Build erfordern.
-- Datenmodelländerungen einschließlich Migrationen, Seed, API-Typen und Einheitenkonvertierung prüfen. Keine Datenbankänderungen allein zur Dokumentationsprüfung ausführen.
-- Vor Abschluss Lint und Typecheck ausführen; bestehende Fehler und Einschränkungen ausdrücklich melden. Für Funktionsänderungen zusätzlich Registrierung/Login, Trainingsstart, Satzabschluss, Trainingsende und relevante Profil-/Freundesansichten auf dem Zielgerät prüfen.
-- Builds, Signierung, Submission und OTA-Updates gemäß `AGENTS.md` über EAS abwickeln. Eine EAS-Konfiguration muss hierfür noch eingerichtet werden.
-- `npm run reset-project` nicht als Wartungsbefehl verwenden: Das Skript verschiebt oder löscht `src/` und `scripts/` und erzeugt einen leeren App-Starter.
+Abgedeckt sind Authentifizierung, Profile/Bilder, Freundschaftsberechtigungen, Vorlagen, Gerätewechsel, Versionskonflikte, parallele Starts, Übungsersatz/-löschung, Warm-up-/Drop-Sätze, Einheiten, XP, Historie, Settings, Feedback und Account-Bereinigung. Unit-Tests prüfen außerdem Dauer, XP-Ränge, Muskelzuordnung und Offline-Konfliktentscheidungen.
+
+Ein erfolgreicher Plattformexport ersetzt keine Interaktionsprüfung auf Geräten. Die noch ausstehende manuelle Matrix steht in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+
+## EAS und Release
+
+`eas.json` enthält Profile für interne Preview-Builds und Production sowie ein Submit-Profil. Projektzuordnung, eigene Bundle-/Package-Identifier, Store-Konten, Signierungsdaten und öffentliche HTTPS-API-Adresse müssen vor dem ersten Release eingerichtet werden. Es wurden keine Cloud-Builds oder Store-Veröffentlichungen gestartet.
+
+```bash
+npx eas-cli@latest build:configure
+npx eas-cli@latest build --profile preview --platform all
+npx eas-cli@latest build --profile production --platform all
+npx eas-cli@latest submit --profile production --platform all
+```
+
+Ein Development-Client-Profil setzt die zusätzliche Installation von `expo-dev-client` über `npx expo install expo-dev-client` voraus. OTA-Updates benötigen zunächst die Einrichtung von EAS Update. Fotos werden ausschließlich als bewusst ausgewähltes Profilbild übertragen; Kamera- und Mikrofonberechtigungen sind deaktiviert. Die abschließende Store-/Datenschutzprüfung ist vor Veröffentlichung durchzuführen.
+
+Expo-Dokumentation: [SDK 57](https://docs.expo.dev/versions/v57.0.0/), [Router](https://docs.expo.dev/router/introduction/), [EAS-Konfiguration](https://docs.expo.dev/build/eas-json/). `npm run reset-project` ist ein destruktives Starter-Skript und kein Wartungsbefehl.

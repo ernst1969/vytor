@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -10,8 +9,11 @@ import {
     View,
 } from "react-native";
 
-import { Colors } from "@/constants/theme";
-import { getWorkoutHistory } from "@/services/api";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
+import { formatTime } from "@/utils/duration";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { getWorkoutDetail } from "@/services/api";
 
 type WorkoutSet = {
   id: number;
@@ -26,6 +28,8 @@ type WorkoutSet = {
 type WorkoutExercise = {
   id: number;
   order: number;
+  weightUnit: "KG" | "LBS";
+  distanceUnit: "KM" | "MI";
   exercise: {
     id: number;
     name: string;
@@ -36,6 +40,10 @@ type WorkoutExercise = {
 
 type Workout = {
   id: number;
+  progress?: { xp: number; level: number; levelStartXp: number; nextLevelXp: number };
+  highlights?: string[];
+  notes?: string;
+  xpEvent?: { points: number };
   startedAt: string;
   endedAt: string | null;
   template?: {
@@ -85,6 +93,8 @@ function formatDuration(
 }
 
 export default function WorkoutDetailScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const { workoutId } = useLocalSearchParams<{
     workoutId: string;
   }>();
@@ -100,32 +110,9 @@ export default function WorkoutDetailScreen() {
   useEffect(() => {
     async function loadWorkout() {
       try {
-        const storedUserId =
-          await AsyncStorage.getItem("vytor_user_id");
-
-        const userId = Number(storedUserId);
         const id = Number(workoutId);
-
-        if (
-          !Number.isInteger(userId) ||
-          !Number.isInteger(id)
-        ) {
-          throw new Error(
-            "Could not identify this workout.",
-          );
-        }
-
-        const workouts =
-          await getWorkoutHistory(userId);
-
-        const found = workouts.find(
-          (item: Workout) => item.id === id,
-        );
-
-        if (!found) {
-          throw new Error("Workout not found.");
-        }
-
+        if (!Number.isInteger(id) || id < 1) throw new Error("Could not identify this workout.");
+        const found = await getWorkoutDetail(id);
         setWorkout(found);
       } catch (err) {
         console.error(
@@ -187,7 +174,7 @@ export default function WorkoutDetailScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -248,6 +235,13 @@ export default function WorkoutDetailScreen() {
           </View>
         </View>
 
+        <View style={styles.exerciseCard}>
+          <Text style={styles.exerciseName}>+{workout.xpEvent?.points ?? 0} XP</Text>
+          <Text style={styles.noSets}>Workout complete · 100 base XP</Text>
+          {workout.progress && <><Text style={styles.noSets}>Level {workout.progress.level} · {workout.progress.xp} total XP</Text><View accessibilityRole="progressbar" accessibilityValue={{ min: workout.progress.levelStartXp, max: workout.progress.nextLevelXp, now: workout.progress.xp }} style={{ height: 10, backgroundColor: Colors.border, borderRadius: 5, marginTop: 12 }}><View style={{ height: 10, borderRadius: 5, backgroundColor: Colors.accent, width: `${Math.min(100, Math.max(0, (workout.progress.xp - workout.progress.levelStartXp) / (workout.progress.nextLevelXp - workout.progress.levelStartXp) * 100))}%` }} /></View></>}
+          {workout.highlights?.map((highlight) => <Text key={highlight} style={[styles.noSets, { color: Colors.accent, marginTop: 8 }]}>★ {highlight}</Text>)}
+        </View>
+        {!!workout.notes && <Text style={[styles.date, { marginTop: 16 }]}>{workout.notes}</Text>}
         <Text style={styles.sectionTitle}>
           EXERCISES
         </Text>
@@ -271,6 +265,8 @@ export default function WorkoutDetailScreen() {
                 </Text>
               </View>
 
+              <Text style={styles.noSets}>+{exercise.sets.filter((set) => set.setType !== "WARMUP").length * 10} set XP</Text>
+              {exercise.sets.some((set) => set.weight !== null && set.reps !== null) && <Text style={styles.noSets}>Estimated 1RM: {Math.max(...exercise.sets.map((set) => (set.weight ?? 0) * (1 + (set.reps ?? 0) / 30))).toFixed(1)} kg (Epley)</Text>}
               {exercise.sets.length === 0 ? (
                 <Text style={styles.noSets}>
                   No recorded sets
@@ -296,10 +292,10 @@ export default function WorkoutDetailScreen() {
 
                       <Text style={styles.setValue}>
                         {[
-                          set.weight !== null ? `${set.weight} kg` : null,
+                          set.weight !== null ? `${Number((set.weight * (exercise.weightUnit === "LBS" ? 2.2046226218 : 1)).toFixed(2))} ${exercise.weightUnit === "LBS" ? "lb" : "kg"}` : null,
                           set.reps !== null ? `${set.reps} reps` : null,
-                          set.distance !== null ? `${set.distance} km` : null,
-                          set.durationSeconds !== null ? `${set.durationSeconds}s` : null,
+                          set.distance !== null ? `${Number((set.distance * (exercise.distanceUnit === "MI" ? 0.6213711922 : 1)).toFixed(2))} ${exercise.distanceUnit === "MI" ? "mi" : "km"}` : null,
+                          set.durationSeconds !== null ? formatTime(set.durationSeconds) : null,
                         ].filter(Boolean).join(" · ") || "—"}
                         {set.setType && set.setType !== "REGULAR" ? ` (${set.setType.toLowerCase()})` : ""}
                       </Text>
@@ -311,11 +307,11 @@ export default function WorkoutDetailScreen() {
           ))}
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,

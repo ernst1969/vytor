@@ -1,9 +1,10 @@
+import { Avatar } from "@/components/avatar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
-    Pressable,
+      Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -11,7 +12,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import {
     acceptFriendRequest,
     cancelFriendRequest,
@@ -23,6 +25,8 @@ import {
 type User = {
   id: number;
   username: string;
+  displayName: string | null;
+  avatarData: string | null;
   createdAt: string;
   xp: number;
   level: number;
@@ -31,11 +35,10 @@ type User = {
   friendship: { requestId: number; status: "PENDING" | "ACCEPTED" | "REJECTED"; direction: "INCOMING" | "OUTGOING" } | null;
 };
 
-function getInitial(username: string) {
-  return username.trim().charAt(0).toUpperCase() || "?";
-}
 
 export default function UserProfileScreen() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -123,7 +126,10 @@ export default function UserProfileScreen() {
         user.id,
       );
 
+      const profile = await getPublicUser(user.id);
+      setUser(profile);
       setRequestSent(true);
+      setRequestDirection("OUTGOING");
     } catch (err) {
       console.error(
         "Failed to send friend request:",
@@ -245,14 +251,13 @@ export default function UserProfileScreen() {
         {/* Profile */}
         <View style={styles.profileHeader}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {getInitial(user.username)}
-            </Text>
+            <Avatar uri={user.avatarData} name={user.displayName || user.username} size={98} />
           </View>
 
           <Text style={styles.username}>
-            {user.username}
+            {user.displayName || user.username}
           </Text>
+          <Text style={styles.memberText}>@{user.username}</Text>
 
           <Text style={styles.memberText}>
             Vytor member
@@ -387,6 +392,10 @@ export default function UserProfileScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent workouts</Text>
+          {(viewingOwnProfile || isFriend) ? user.recentWorkouts.map((workout) => <Pressable key={workout.id} style={styles.infoCard} onPress={() => router.push({ pathname: "/workout-detail", params: { workoutId: workout.id } })}><Text style={styles.infoText}>{new Date(workout.endedAt ?? workout.startedAt).toLocaleDateString()} ›</Text></Pressable>) : <Pressable style={styles.infoCard} onPress={() => router.push("/(tabs)/profile")}><Text style={styles.infoText}>Workout details are visible to friends. Open your own training overview ›</Text></Pressable>}
+        </View>
         {/* Placeholder */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -405,7 +414,7 @@ export default function UserProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,

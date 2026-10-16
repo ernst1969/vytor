@@ -1,35 +1,28 @@
-import { Tabs, useSegments } from "expo-router";
+import { Tabs } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
-  Alert,
   type ColorValue,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
+import { formatTime } from "@/utils/duration";
 import { useWorkout } from "@/context/workout-context";
 
 function WorkoutHeader() {
-  const {
-    startedAt,
-    cancelActiveWorkout,
-    finishWorkout,
-    restEndsAt,
-  } = useWorkout();
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
+  const { startedAt, restEndsAt } = useWorkout();
 
-  const segments = useSegments();
   const insets = useSafeAreaInsets();
 
   const [now, setNow] = useState<number>(() => Date.now());
-  const [isFinishing, setIsFinishing] = useState(false);
 
-  const isHomeTab =
-    segments.length === 1 && segments[0] === "(tabs)";
 
   useEffect(() => {
     if (!startedAt) {
@@ -43,61 +36,6 @@ function WorkoutHeader() {
     return () => clearInterval(interval);
   }, [startedAt, restEndsAt]);
 
-  async function finishConfirmedWorkout() {
-    if (isFinishing) return;
-
-    try {
-      setIsFinishing(true);
-      console.log("Finish button pressed");
-      await finishWorkout();
-      console.log("Workout finished successfully");
-    } catch (error) {
-      console.error(
-        "Failed to finish workout:",
-        error,
-      );
-
-      Alert.alert(
-        "Could not finish workout",
-        error instanceof Error
-          ? error.message
-          : "Something went wrong while saving your workout.",
-      );
-    } finally {
-      setIsFinishing(false);
-    }
-  }
-
-  function handleFinishWorkout() {
-    if (isFinishing) return;
-
-    Alert.alert(
-      "Finish workout?",
-      "Completed sets will be saved and count toward your progress.",
-      [
-        { text: "Keep training", style: "cancel" },
-        {
-          text: "Finish",
-          onPress: () => void finishConfirmedWorkout(),
-        },
-      ],
-    );
-  }
-
-  function handleCancelWorkout() {
-    Alert.alert("Cancel workout", "Discard this active workout?", [
-      { text: "Keep training", style: "cancel" },
-      {
-        text: "Discard",
-        style: "destructive",
-        onPress: () => {
-          void cancelActiveWorkout().catch((error) =>
-            Alert.alert("Could not cancel workout", error instanceof Error ? error.message : "Something went wrong."),
-          );
-        },
-      },
-    ]);
-  }
 
   if (!startedAt || now === null) {
     return null;
@@ -107,55 +45,9 @@ function WorkoutHeader() {
     restEndsAt !== null &&
     restEndsAt > now;
 
-  let timer: string;
-
-  if (isResting) {
-    const remainingSeconds = Math.max(
-      0,
-      Math.ceil(
-        (restEndsAt - now) / 1000,
-      ),
-    );
-
-    const minutes = Math.floor(
-      remainingSeconds / 60,
-    );
-
-    const seconds =
-      remainingSeconds % 60;
-
-    timer = `${String(minutes).padStart(
-      2,
-      "0",
-    )}:${String(seconds).padStart(
-      2,
-      "0",
-    )}`;
-  } else {
-    const elapsedSeconds = Math.max(
-      0,
-      Math.floor(
-        (now - startedAt) / 1000,
-      ),
-    );
-
-    const hours = Math.floor(
-      elapsedSeconds / 3600,
-    );
-
-    const minutes = Math.floor(
-      (elapsedSeconds % 3600) / 60,
-    );
-
-    const seconds =
-      elapsedSeconds % 60;
-
-    timer = [hours, minutes, seconds]
-      .map((value) =>
-        String(value).padStart(2, "0"),
-      )
-      .join(":");
-  }
+  const timer = formatTime(isResting
+    ? Math.max(0, Math.ceil((restEndsAt - now) / 1000))
+    : Math.max(0, Math.floor((now - startedAt) / 1000)));
 
   return (
     <View
@@ -167,13 +59,7 @@ function WorkoutHeader() {
         },
       ]}
     >
-      <View style={styles.headerSide}>
-        {isHomeTab && (
-          <Pressable onPress={handleCancelWorkout} hitSlop={12}>
-            <Text style={styles.cancelButton}>×</Text>
-          </Pressable>
-        )}
-      </View>
+      <View style={styles.headerSide} />
 
       <View style={styles.timerContainer}>
         <Text style={styles.timerLabel}>
@@ -185,26 +71,7 @@ function WorkoutHeader() {
         </Text>
       </View>
 
-      <View style={styles.headerSide}>
-        {isHomeTab && (
-          <Pressable
-            style={styles.finishButton}
-            onPress={handleFinishWorkout}
-            disabled={isFinishing}
-            hitSlop={12}
-          >
-            <Text
-              style={[
-                styles.checkmark,
-                isFinishing &&
-                  styles.checkmarkDisabled,
-              ]}
-            >
-              ✓
-            </Text>
-          </Pressable>
-        )}
-      </View>
+      <View style={styles.headerSide} />
     </View>
   );
 }
@@ -216,6 +83,8 @@ function TabIcon({ name, color, size }: { name: TabIconName; color: ColorValue; 
 }
 
 export default function TabLayout() {
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
 
   return (
@@ -280,7 +149,7 @@ export default function TabLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,

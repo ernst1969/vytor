@@ -6,7 +6,8 @@
   "scripts": {
     "test": "tsx --test src/*.test.ts",
     "postinstall": "prisma skills sync || exit 0",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "test:integration": "node scripts/integration.mjs"
   },
   "keywords": [],
   "type": "module",

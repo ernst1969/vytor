@@ -1,14 +1,19 @@
+import { useAppDialog } from "@/context/dialog-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
+import { type AppPalette } from "@/constants/theme";
+import { useAppTheme } from "@/context/theme-context";
 import { getUser, updateProfile } from "@/services/api";
 
 export default function EditProfileScreen() {
+  const { alert } = useAppDialog();
+  const { colors: Colors } = useAppTheme();
+  const styles = createStyles(Colors);
   const [userId, setUserId] = useState<number | null>(null);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -27,13 +32,13 @@ export default function EditProfileScreen() {
         setDisplayName(user.displayName ?? "");
         setAvatarData(user.avatarData ?? null);
       } catch (error) {
-        Alert.alert("Could not load profile", error instanceof Error ? error.message : "Something went wrong.");
+        alert("Could not load profile", error instanceof Error ? error.message : "Something went wrong.");
       } finally {
         setLoading(false);
       }
     }
     void load();
-  }, []);
+  }, [alert]);
 
   async function choosePhoto() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -56,7 +61,7 @@ export default function EditProfileScreen() {
       await updateProfile(userId, { username, displayName, avatarData });
       router.back();
     } catch (error) {
-      Alert.alert("Could not save profile", error instanceof Error ? error.message : "Something went wrong.");
+      alert("Could not save profile", error instanceof Error ? error.message : "Something went wrong.");
       setSaving(false);
     }
   }
@@ -70,10 +75,10 @@ export default function EditProfileScreen() {
       </View>
       {loading ? <View style={styles.center}><ActivityIndicator color={Colors.accent} /></View> : (
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.avatar} onPress={() => void choosePhoto()}>
+          <Pressable style={styles.avatar} onPress={() => void choosePhoto().catch((cause) => alert("Could not choose photo", cause instanceof Error ? cause.message : "Try another image"))}>
             {avatarData ? <Image source={{ uri: avatarData }} style={styles.avatarImage} /> : <Text style={styles.avatarInitial}>{(displayName || username).charAt(0).toUpperCase()}</Text>}
           </Pressable>
-          <Pressable onPress={() => void choosePhoto()}><Text style={styles.photoAction}>CHOOSE PHOTO</Text></Pressable>
+          <Pressable onPress={() => void choosePhoto().catch((cause) => alert("Could not choose photo", cause instanceof Error ? cause.message : "Try another image"))}><Text style={styles.photoAction}>CHOOSE PHOTO</Text></Pressable>
           {avatarData && <Pressable onPress={() => setAvatarData(null)}><Text style={styles.removePhoto}>REMOVE PHOTO</Text></Pressable>}
           <Text style={styles.label}>DISPLAY NAME</Text>
           <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} maxLength={50} placeholder="Your name" placeholderTextColor={Colors.textMuted} />
@@ -86,7 +91,7 @@ export default function EditProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: AppPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   header: { minHeight: 58, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: Colors.border },
   headerButton: { width: 64, minHeight: 44, alignItems: "center", justifyContent: "center" },
