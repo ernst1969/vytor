@@ -13,9 +13,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type AppPalette } from "@/constants/theme";
+import { Layout, type AppPalette } from "@/constants/theme";
 import { useAppTheme } from "@/context/theme-context";
+import { ProgressBar } from "@/components/progress-bar";
 import { MuscleOverview } from "@/components/muscle-overview";
+import { useLocalDay } from "@/hooks/use-local-day";
+import { recentWorkoutDays } from "@/utils/recent-workouts";
 import { getUser, getWorkoutHistory } from "@/services/api";
 
 type WorkoutSet = {
@@ -62,108 +65,23 @@ type User = {
   nextLevelXp: number;
 };
 
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatDuration(
-  startedAt: string,
-  endedAt: string | null,
-) {
-  if (!endedAt) {
-    return "In progress";
-  }
-
-  const durationMs =
-    new Date(endedAt).getTime() -
-    new Date(startedAt).getTime();
-
-  const minutes = Math.max(
-    0,
-    Math.round(durationMs / 60000),
-  );
-
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (remainingMinutes === 0) {
-    return `${hours}h`;
-  }
-
-  return `${hours}h ${remainingMinutes}m`;
-}
-
-function getWorkoutTitle(workout: Workout) {
-  if (workout.template?.name) {
-    return workout.template.name;
-  }
-
-  if (workout.exercises.length === 0) {
-    return "Workout";
-  }
-
-  if (workout.exercises.length === 1) {
-    return workout.exercises[0].exercise.name;
-  }
-
-  return `${workout.exercises[0].exercise.name} + ${
-    workout.exercises.length - 1
-  } more`;
-}
-
-function getSetCount(workout: Workout) {
-  return workout.exercises.reduce(
-    (total, exercise) => total + exercise.sets.length,
-    0,
-  );
-}
-
-function getLast14Days() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  return Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(today);
-
-    date.setDate(today.getDate() - (13 - index));
-
-    return date;
-  });
-}
-
-function isSameDay(first: Date, second: Date) {
-  return (
-    first.getFullYear() === second.getFullYear() &&
-    first.getMonth() === second.getMonth() &&
-    first.getDate() === second.getDate()
-  );
-}
-
 export default function ProfileScreen() {
   const { colors: Colors } = useAppTheme();
   const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
 
-  const [now, setNow] = useState(() => Date.now());
+  const { now } = useLocalDay();
   const [user, setUser] = useState<User | null>(null);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const days = recentWorkoutDays(workouts, now);
+
   const loadProfile = useCallback(async () => {
     try {
       setError(null);
-      setNow(Date.now());
 
       const storedUserId =
         await AsyncStorage.getItem("vytor_user_id");
@@ -210,7 +128,6 @@ export default function ProfileScreen() {
     loadProfile();
   }
 
-  const activityDays = getLast14Days();
 
   if (loading) {
     return (
@@ -260,7 +177,9 @@ export default function ProfileScreen() {
       contentContainerStyle={[
         styles.content,
         {
-          paddingTop: insets.top + 20,
+          paddingTop: insets.top + 24,
+          paddingLeft: Layout.pagePadding + insets.left,
+          paddingRight: Layout.pagePadding + insets.right,
           paddingBottom: insets.bottom + 40,
         },
       ]}
@@ -305,148 +224,45 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      <View style={{ marginBottom: 12 }}><ProgressBar current={user.xp - user.levelStartXp} total={user.nextLevelXp - user.levelStartXp} /></View>
       <Text style={styles.xpText}>
         {user.xp - user.levelStartXp} / {user.nextLevelXp - user.levelStartXp} XP to next level
       </Text>
 
       <Text style={styles.xpText}>{user.tier}{user.nextTierXp ? ` · next tier at ${user.nextTierXp} XP` : " · highest tier"}</Text>
-      {/* Recent workouts */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          RECENT WORKOUTS
-        </Text>
-
-        <View style={styles.activityGrid}>
-          {activityDays.map((day) => {
-            const workedOut = workouts.some(
-              (workout) =>
-                isSameDay(
-                  new Date(
-                    workout.endedAt ??
-                      workout.startedAt,
-                  ),
-                  day,
-                ),
-            );
-
-            return (
-              <Pressable
-                accessibilityLabel={`Workouts on ${day.toLocaleDateString()}`}
-                onPress={() => { const item = workouts.find((entry) => isSameDay(new Date(entry.endedAt ?? entry.startedAt), day)); if (item) router.push({ pathname: "/workout-detail", params: { workoutId: item.id } }); }}
-                key={day.toISOString()}
-                style={[
-                  styles.activityDay,
-                  workedOut &&
-                    styles.activityDayCompleted,
-                ]}
-              >
-                {workedOut && (
-                  <View style={styles.activityDot} />
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.activityLabels}>
-          <Text style={styles.activityLabel}>
-            {activityDays[0].toLocaleDateString(
-              undefined,
-              {
-                month: "short",
-                day: "numeric",
-              },
-            )}
-          </Text>
-
-          <Text style={styles.activityLabel}>
-            Today
-          </Text>
-        </View>
-      </View>
-
-      <MuscleOverview now={now} exercises={workouts.flatMap((item) => item.exercises.map((entry) => ({ name: entry.exercise.name, category: entry.exercise.category, sets: entry.sets.length, completedAt: item.endedAt ?? item.startedAt })))} />
       {/* Workout feed */}
       <View style={styles.section}>
         <View style={styles.feedHeader}>
           <Text style={styles.sectionTitle}>
-            WORKOUTS
+            RECENT WORKOUTS
           </Text>
 
           <Text style={styles.workoutCount}>
-            {workouts.length}
+            {days.filter((day) => day.workout).length}
           </Text>
         </View>
 
-        {workouts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>
-              No workouts yet
-            </Text>
-
-            <Text style={styles.emptyText}>
-              Complete your first workout and it will
-              appear here.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.feed}>
-            {workouts.map((workout) => (
-              <Pressable
-                key={workout.id}
-                style={({ pressed }) => [
-                  styles.workoutCard,
-                  pressed &&
-                    styles.workoutCardPressed,
-                ]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/workout-detail",
-                    params: {
-                      workoutId: String(
-                        workout.id,
-                      ),
-                    },
-                  })
-                }
-              >
-                <View style={styles.workoutCardMain}>
-                  <Text style={styles.workoutTitle}>
-                    {getWorkoutTitle(workout)}
-                  </Text>
-
-                  <Text style={styles.workoutDate}>
-                    {formatDate(
-                      workout.endedAt ??
-                        workout.startedAt,
-                    )}
-                    {" · "}
-                    {formatDuration(
-                      workout.startedAt,
-                      workout.endedAt,
-                    )}
-                  </Text>
-
-                  <Text style={styles.workoutSummary}>
-                    {workout.exercises.length}{" "}
-                    {workout.exercises.length === 1
-                      ? "exercise"
-                      : "exercises"}
-                    {" · "}
-                    {getSetCount(workout)}{" "}
-                    {getSetCount(workout) === 1
-                      ? "set"
-                      : "sets"}
-                  </Text>
-                </View>
-
-                <Text style={styles.chevron}>
-                  ›
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+        <View style={styles.workoutGrid}>
+          {[0, 1].map((row) => (
+            <View key={row} style={styles.workoutGridRow}>
+              {Array.from({ length: 7 }, (_, column) => {
+                const index = row * 7 + column;
+                const { date, workout } = days[index];
+                return workout ? (
+                  <Pressable
+                    key={date.toISOString()}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open workout from ${date.toLocaleDateString()}`}
+                    style={({ pressed }) => [styles.workoutTile, pressed && { opacity: 0.7 }]}
+                    onPress={() => router.push({ pathname: "/workout-detail", params: { workoutId: String(workout.id) } })}
+                  >
+                    <MuscleOverview exercises={workout.exercises.map((entry) => ({ name: entry.exercise.name, category: entry.exercise.category, sets: entry.sets.length }))} />
+                  </Pressable>
+                ) : <View key={date.toISOString()} accessibilityLabel={`No workout on ${date.toLocaleDateString()}`} style={styles.workoutTile} />;
+              })}
+            </View>
+          ))}
+        </View>
       </View>
     </ScrollView>
   );
@@ -459,7 +275,9 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   },
 
   content: {
-    paddingHorizontal: 20,
+    width: "100%",
+    maxWidth: Layout.contentWidth,
+    alignSelf: "center",
   },
 
   loadingContainer: {
@@ -536,7 +354,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   },
 
   handle: { marginTop: 4, color: Colors.textMuted, fontSize: 14 },
-  editProfileButton: { marginTop: 14, minHeight: 38, paddingHorizontal: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, borderRadius: 7 },
+  editProfileButton: { marginTop: 14, minHeight: 44, paddingHorizontal: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, borderRadius: Layout.radius, backgroundColor: Colors.surface },
   editProfileText: { color: Colors.text, fontSize: 11, fontWeight: "900", letterSpacing: 0.7 },
 
   statsRow: {
@@ -547,7 +365,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     borderColor: Colors.border,
     borderRadius: 14,
     minHeight: 88,
-    marginBottom: 30,
+    marginBottom: 16,
   },
 
   statCard: {
@@ -572,7 +390,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   statValue: {
     color: Colors.text,
-    fontSize: 25,
+    fontSize: 22,
     fontWeight: "700",
   },
 
@@ -580,28 +398,13 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     color: Colors.textMuted,
     textAlign: "center",
     fontSize: 12,
-    marginTop: -14,
-    marginBottom: 28,
+    marginBottom: 12,
+    lineHeight: 18,
   },
 
-  leaderboardCard: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    borderWidth: 1,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-
-  leaderboardRow: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-  },
-
-  leaderboardRank: { width: 42, color: Colors.accent, fontWeight: "800" },
-  leaderboardName: { flex: 1, color: Colors.text, fontWeight: "700" },
-  leaderboardXp: { color: Colors.textMuted, fontSize: 12 },
+  workoutGrid: { gap: 7, marginTop: 2 },
+  workoutGridRow: { flexDirection: "row", gap: 7 },
+  workoutTile: { flex: 1, minWidth: 0, aspectRatio: 0.7, overflow: "hidden", borderRadius: 7, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surface },
 
   section: {
     marginBottom: 30,
@@ -609,50 +412,9 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   sectionTitle: {
     color: Colors.text,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: "800",
-    letterSpacing: 1.4,
     marginBottom: 14,
-  },
-
-  activityGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-  },
-
-  activityDay: {
-    width: 40,
-    height: 40,
-    backgroundColor: Colors.surface,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  activityDayCompleted: {
-    backgroundColor: Colors.accent,
-    borderColor: Colors.accent,
-  },
-
-  activityDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: Colors.background,
-  },
-
-  activityLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
-
-  activityLabel: {
-    color: Colors.textMuted,
-    fontSize: 11,
   },
 
   feedHeader: {
@@ -667,73 +429,4 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     marginBottom: 14,
   },
 
-  feed: {
-    gap: 10,
-  },
-
-  workoutCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 14,
-    padding: 17,
-  },
-
-  workoutCardPressed: {
-    opacity: 0.7,
-  },
-
-  workoutCardMain: {
-    flex: 1,
-  },
-
-  workoutTitle: {
-    color: Colors.text,
-    fontSize: 17,
-    fontWeight: "700",
-    marginBottom: 6,
-  },
-
-  workoutDate: {
-    color: Colors.textMuted,
-    fontSize: 13,
-    marginBottom: 5,
-  },
-
-  workoutSummary: {
-    color: Colors.textMuted,
-    fontSize: 12,
-  },
-
-  chevron: {
-    color: Colors.textMuted,
-    fontSize: 30,
-    fontWeight: "300",
-    marginLeft: 12,
-  },
-
-  emptyState: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 14,
-    padding: 24,
-    alignItems: "center",
-  },
-
-  emptyTitle: {
-    color: Colors.text,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 6,
-  },
-
-  emptyText: {
-    color: Colors.textMuted,
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 19,
-  },
 });

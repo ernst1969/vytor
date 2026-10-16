@@ -76,11 +76,18 @@ try {
   await api("/workouts", "POST", { userId: a.id, exercises: [{ exerciseId: exercise.id }] }, secondDevice.token, 409);
   assert.equal((await api("/workouts/active/current", "GET", undefined, secondDevice.token)).id, workout.id);
   const draft = { exercises: [{ workoutExerciseId: workout.exercises[0].id, exerciseId: exercise.id, weightUnit: "LBS", distanceUnit: "KM", sets: [{ reps: "10", weight: "100", setType: "REGULAR", completed: true }] }], restEndsAt: Date.now() + 123000 };
+  // A nullable per-exercise pause means "use the default", not an invalid draft.
+  draft.exercises[0].restSeconds = null;
+  for (const restSeconds of [-1, 3601, 1.5, "90"]) {
+    await api(`/workouts/${workout.id}/draft`, "PUT", { revision: 0, draft: { ...draft, exercises: [{ ...draft.exercises[0], restSeconds }] }, notes: "" }, a.token, 400);
+  }
   await api(`/workouts/${workout.id}/draft`, "PUT", { revision: 0, draft, notes: "Test notes" }, a.token);
   await api(`/workouts/${workout.id}/draft`, "PUT", { revision: 0, draft, notes: "stale" }, secondDevice.token, 409);
   const resumed = await api("/workouts/active/current", "GET", undefined, secondDevice.token);
   assert.equal(resumed.draft.exercises[0].sets[0].reps, "10");
   assert.equal(resumed.notes, "Test notes");
+  assert.equal(resumed.draft.exercises[0].restSeconds, null);
+  assert.equal(resumed.exercises[0].restSeconds, null);
   const added = await api(`/workouts/${workout.id}/exercises`, "POST", { exerciseId: custom.id }, a.token);
   await api(`/workout-exercises/${added.id}`, "DELETE", undefined, b.token, 404);
   const replacement = exercises.find((item) => item.id !== exercise.id && item.measurementType === "WEIGHT_REPS");

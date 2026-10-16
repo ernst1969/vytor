@@ -96,12 +96,14 @@ export default function TabLayout() {
           tabBarStyle: {
             backgroundColor: Colors.surface,
             borderTopColor: Colors.border,
-            borderTopWidth: 2,
+            borderTopWidth: 1,
             height: 70 + insets.bottom,
+            paddingTop: 6,
             paddingBottom: insets.bottom,
           },
           tabBarHideOnKeyboard: true,
-          tabBarActiveTintColor: Colors.text,
+          tabBarActiveTintColor: Colors.accent,
+          tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
           tabBarInactiveTintColor: Colors.textMuted,
           headerShown: false,
         }}

@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type AppPalette } from "@/constants/theme";
+import { Layout, type AppPalette } from "@/constants/theme";
 import { useAppTheme } from "@/context/theme-context";
 import {
   acceptFriendRequest,
@@ -273,7 +273,7 @@ export default function FriendsScreen() {
       <View
         style={[
           styles.center,
-          { paddingTop: insets.top },
+
         ]}
       >
         <ActivityIndicator
@@ -285,12 +285,7 @@ export default function FriendsScreen() {
   }
 
   return (
-    <View
-      style={[
-        styles.container,
-        { paddingTop: insets.top },
-      ]}
-    >
+    <View style={styles.container}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -303,13 +298,23 @@ export default function FriendsScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: insets.bottom + 100,
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + 24,
+            paddingLeft: Layout.pagePadding + insets.left,
+            paddingRight: Layout.pagePadding + insets.right,
           },
         ]}
       >
-        <View style={{ marginBottom: 24 }}>
-          <Text style={styles.title}>Leaderboard</Text>
-          {leaders.map((leader) => <Pressable key={leader.id} accessibilityLabel={`${leader.username}, rank ${leader.rank}`} style={{ paddingVertical: 12, minHeight: 48, flexDirection: "row", gap: 12 }} onPress={() => router.push({ pathname: "/user-profile", params: { userId: leader.id } })}><Text style={{ color: Colors.accent }}>#{leader.rank}</Text><Text style={{ color: Colors.text, flex: 1 }}>{leader.username}</Text><Text style={{ color: Colors.textMuted }}>Level {leader.level} · {leader.xp} XP</Text></Pressable>)}
+        <View style={styles.leaderboardSection}>
+          <Text accessibilityRole="header" style={styles.leaderboardTitle}>Leaderboard</Text>
+          <View style={styles.leaderboardCard}>
+            {leaders.map((leader, index) => <Pressable key={leader.id} accessibilityRole="button" accessibilityLabel={`${leader.username}, rank ${leader.rank}`} style={({ pressed }) => [styles.leaderboardRow, index > 0 && styles.leaderboardDivider, pressed && styles.friendRowPressed]} onPress={() => router.push({ pathname: "/user-profile", params: { userId: leader.id } })}>
+              <Text style={styles.leaderboardRank}>#{leader.rank}</Text>
+              <Text numberOfLines={1} ellipsizeMode="tail" style={styles.leaderboardName}>{leader.username}</Text>
+              <View style={styles.leaderboardStats}><Text style={styles.leaderboardLevel}>Level {leader.level}</Text><Text style={styles.leaderboardXp}>{leader.xp.toLocaleString()} XP</Text></View>
+            </Pressable>)}
+            {leaders.length === 0 && <Text style={styles.leaderboardEmpty}>No rankings available yet.</Text>}
+          </View>
         </View>
         {/* Header */}
         <View style={styles.header}>
@@ -558,8 +563,9 @@ export default function FriendsScreen() {
                       >
                         <Avatar uri={workout.user.avatarData} name={workout.user.displayName || workout.user.username} size={36} />
 
-                        <View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
+                            numberOfLines={1}
                             style={styles.workoutUsername}
                           >
                             {workout.user.username}
@@ -806,14 +812,28 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
+  leaderboardSection: { marginBottom: Layout.sectionGap },
+  leaderboardTitle: { color: Colors.text, fontSize: 22, fontWeight: "800", marginBottom: 14 },
+  leaderboardCard: { borderWidth: 1, borderColor: Colors.border, borderRadius: Layout.radius, backgroundColor: Colors.surface, overflow: "hidden" },
+  leaderboardRow: { minHeight: 68, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  leaderboardDivider: { borderTopWidth: 1, borderTopColor: Colors.border },
+  leaderboardRank: { color: Colors.accent, fontWeight: "800", fontSize: 14, minWidth: 32 },
+  leaderboardName: { color: Colors.text, fontWeight: "700", fontSize: 14, flex: 1, minWidth: 0 },
+  leaderboardStats: { alignItems: "flex-end", flexShrink: 0, gap: 4 },
+  leaderboardLevel: { color: Colors.text, fontSize: 12, fontWeight: "600" },
+  leaderboardXp: { color: Colors.textMuted, fontSize: 11 },
+  leaderboardEmpty: { color: Colors.textMuted, padding: 20, lineHeight: 20 },
   content: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    width: "100%",
+    maxWidth: Layout.contentWidth,
+    alignSelf: "center",
   },
 
   header: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
     justifyContent: "space-between",
     marginBottom: 28,
   },
@@ -827,7 +847,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   },
 
   title: {
-    fontSize: 34,
+    fontSize: 28,
     fontWeight: "800",
     color: Colors.text,
   },
@@ -835,7 +855,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   findButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -858,7 +878,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   searchInput: {
     height: 50,
     paddingHorizontal: 17,
-    borderRadius: 15,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -881,7 +901,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   searchResults: {
     marginTop: 10,
-    borderRadius: 18,
+    borderRadius: Layout.radius,
     overflow: "hidden",
     backgroundColor: Colors.card,
     borderWidth: 1,
@@ -918,6 +938,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   userInfo: {
     flex: 1,
+    minWidth: 0,
     marginLeft: 13,
   },
 
@@ -943,7 +964,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   errorCard: {
     padding: 14,
     marginBottom: 20,
-    borderRadius: 15,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -991,12 +1012,12 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   countText: {
     fontSize: 11,
     fontWeight: "800",
-    color: Colors.background,
+    color: Colors.onAccent,
   },
 
   card: {
     overflow: "hidden",
-    borderRadius: 20,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -1028,7 +1049,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   acceptButton: {
     paddingHorizontal: 15,
     paddingVertical: 9,
-    borderRadius: 18,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.tint,
   },
 
@@ -1043,14 +1064,14 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   acceptButtonText: {
     fontSize: 12,
     fontWeight: "800",
-    color: Colors.background,
+    color: Colors.onAccent,
   },
 
   emptyCard: {
     alignItems: "center",
     paddingHorizontal: 25,
     paddingVertical: 35,
-    borderRadius: 20,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -1082,7 +1103,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     marginTop: 18,
     paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.tint,
   },
 
@@ -1093,7 +1114,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   emptyButtonText: {
     fontSize: 13,
     fontWeight: "800",
-    color: Colors.background,
+    color: Colors.onAccent,
   },
 
   feed: {
@@ -1102,7 +1123,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   workoutCard: {
     padding: 17,
-    borderRadius: 20,
+    borderRadius: Layout.radius,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -1115,6 +1136,8 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   },
 
   workoutUser: {
+    minWidth: 0,
+    marginRight: 8,
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
@@ -1138,6 +1161,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   },
 
   workoutUsername: {
+    flexShrink: 1,
     marginLeft: 10,
     fontSize: 14,
     fontWeight: "800",

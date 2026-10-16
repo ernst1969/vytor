@@ -69,7 +69,7 @@ export function WorkoutSetTable({ exercise, compact, onError }: {
           </View>;
         })}
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: set.completed }} accessibilityLabel={`Complete ${label.toLowerCase()} ${index + 1}`} onPress={() => { if (!completeSet(exercise.id, set.id)) onError("Enter valid non-negative values first"); }} style={[styles.confirm, { width: columns.action, backgroundColor: set.completed ? colors.accent : colors.background, borderColor: set.completed ? colors.accent : colors.border }]}>
-          <Text style={{ color: set.completed ? "#fff" : colors.accent, fontSize: 21, fontWeight: "900" }}>✓</Text>
+          <Text style={{ color: set.completed ? colors.onAccent : colors.accent, fontSize: 21, fontWeight: "900" }}>✓</Text>
         </Pressable>
       </View>
       {selectedId === set.id && <View style={[styles.options, { borderColor: colors.border }]}>

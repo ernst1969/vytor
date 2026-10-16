@@ -22,18 +22,19 @@ export const Colors = {
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
   },
-  background: "#121212",
-  surface: "#242424",
-  border: "#3A3A3A",
-  text: "#E6E2D8",
-  textMuted: "#8C8A84",
-  accent: "#B87333",
-  tint: "#B87333",
-  card: "#242424",
+  background: "#181A19",
+  surface: "#242625",
+  border: "#3C3F3D",
+  text: "#FFFFFF",
+  textMuted: "#BFC1BE",
+  accent: "#E89235",
+  tint: "#E89235",
+  card: "#242625",
 };
 
-export const DarkPalette = { background: "#121212", surface: "#242424", border: "#3A3A3A", text: "#E6E2D8", textMuted: "#A6A39C", accent: "#B87333", tint: "#B87333", card: "#242424" };
-export const LightPalette: typeof DarkPalette = { background: "#FAF7F2", surface: "#FFFFFF", border: "#D8D1C7", text: "#231E19", textMuted: "#6F655B", accent: "#93531E", tint: "#93531E", card: "#FFFFFF" };
+export const DarkPalette = { background: "#181A19", surface: "#242625", border: "#3C3F3D", text: "#FFFFFF", textMuted: "#BFC1BE", accent: "#E89235", tint: "#E89235", card: "#242625", onAccent: "#181A19", destructive: "#EF8585" };
+export const LightPalette: typeof DarkPalette = { background: "#FAF7F2", surface: "#FFFFFF", border: "#D8D1C7", text: "#231E19", textMuted: "#6F655B", accent: "#93531E", tint: "#93531E", card: "#FFFFFF", onAccent: "#FFFFFF", destructive: "#B83D3D" };
+export const Layout = { pagePadding: 20, radius: 14, contentWidth: 720, sectionGap: 24 } as const;
 export type AppPalette = typeof DarkPalette;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;

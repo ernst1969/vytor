@@ -2399,7 +2399,7 @@ app.put("/api/workouts/:id/draft", async (req, res) => {
   const ids = draft.exercises.map((item: { workoutExerciseId?: number }) => item.workoutExerciseId);
   if (ids.length !== active.exercises.length || new Set(ids).size !== ids.length || active.exercises.some((item) => !ids.includes(item.id) || draft.exercises.find((entry: any) => entry.workoutExerciseId === item.id)?.exerciseId !== item.exerciseId)) return res.status(409).json({ error: "Exercise list changed on another device. Reload before syncing." });
   for (const item of draft.exercises) {
-    if (!item || !["KG", "LBS"].includes(item.weightUnit) || !["KM", "MI"].includes(item.distanceUnit) || !Array.isArray(item.sets) || item.sets.length > 100 || (item.restSeconds !== undefined && (!Number.isInteger(item.restSeconds) || item.restSeconds < 0 || item.restSeconds > 3600))) return res.status(400).json({ error: "Invalid draft exercise" });
+    if (!item || !["KG", "LBS"].includes(item.weightUnit) || !["KM", "MI"].includes(item.distanceUnit) || !Array.isArray(item.sets) || item.sets.length > 100 || (item.restSeconds != null && (!Number.isInteger(item.restSeconds) || item.restSeconds < 0 || item.restSeconds > 3600))) return res.status(400).json({ error: "Invalid draft exercise" });
   }
   const updated = await prisma.$transaction(async (tx) => {
     const result = await tx.workout.updateMany({ where: { id: active.id, userId: authUserId(req), endedAt: null, suspended: false, revision }, data: { draft, notes, revision: { increment: 1 } } });

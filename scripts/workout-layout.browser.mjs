@@ -33,8 +33,8 @@ const user = { id: 1, username: "layout_test", displayName: "Layout Test", avata
 const settings = { preferredWeightUnit: "KG", preferredDistanceUnit: "KM", restSeconds: 90, theme: "DARK" };
 let mutations = 0;
 try {
-  for (const width of [320, 360, 390, 768, 1440]) {
-    const height = width === 320 ? 568 : 900;
+  for (const width of [320, 344, 360, 390, 768, 1440]) {
+    const height = width === 320 ? 568 : width === 344 ? 880 : 900;
     const context = await browser.newContext({ viewport: { width, height } });
     await context.addInitScript(() => { localStorage.setItem("vytor_user_id", "1"); localStorage.setItem("vytor_session_token", "layout-test"); });
     const page = await context.newPage();
@@ -52,14 +52,23 @@ try {
       let data = null, status = 200;
       if (req.method() === "OPTIONS") data = {};
       else if (path === "/api/health") data = { status: "ok" };
-      else if (path === "/api/settings") data = settings;
+      else if (path === "/api/settings") { if (req.method() === "PATCH") Object.assign(settings, req.postDataJSON()); data = settings; }
       else if (path === "/api/users/1") data = user;
+      else if (path === "/api/leaderboard") data = [
+        { id: 1, username: "layout_test", rank: 1, level: 2, xp: 120 },
+        { id: 2, username: "A_deliberately_long_username_for_layout", rank: 1, level: 2, xp: 120 },
+        { id: 3, username: "another_athlete", rank: 3, level: 1, xp: 90 },
+      ];
+      else if (path === "/api/friends/1") data = [{ id: 2, username: "A_deliberately_long_username_for_layout" }];
+      else if (path === "/api/friends/1/requests") data = [];
+      else if (path === "/api/friends/1/feed") data = [{ ...finished, user: { id: 2, username: "A_deliberately_long_username_for_layout" } }];
+      else if (path === "/api/templates" || path === "/api/workouts/drafts/suspended") data = [];
       else if (path === "/api/workouts/active/current") data = active;
       else if (path === "/api/workouts/101/draft") {
         const body = req.postDataJSON();
         if (body.revision !== active.revision) { status = 409; data = { error: "Conflict" }; }
         else { active = { ...active, draft: body.draft, notes: body.notes, revision: active.revision + 1 }; mutations++; data = { revision: active.revision }; }
-      } else if (path === "/api/workouts/1") data = [finished];
+      } else if (path === "/api/workouts/1") data = [finished, { ...finished, id: 102, startedAt: new Date(Date.now() - 86400000 - 300000).toISOString(), endedAt: new Date(Date.now() - 86400000).toISOString(), exercises: [{ ...finished.exercises[0], exercise: { id: 20, name: "Biceps Curl", category: "Arms" } }] }];
       else if (path === "/api/workouts/detail/101") data = { ...finished, progress: user, highlights: [] };
       else if (path === "/api/exercises") data = exercises;
       else if (/last-workout$/.test(path)) data = null;
@@ -128,19 +137,125 @@ try {
       await page.getByText("Workout complete · 100 base XP", { exact: true }).waitFor();
     }
     await page.goto(`${address}/profile`);
-    await page.getByText("Muscle load", { exact: true }).waitFor();
-    assert.equal(await page.locator('svg[aria-label$="muscle map"]').count(), 2);
-    assert.ok(await page.locator('svg[aria-label$="muscle map"] path').count() > 60);
-    await page.getByRole("button", { name: "Female figure", exact: true }).click();
-    await page.getByRole("button", { name: "All time", exact: true }).click();
-    await page.getByRole("button", { name: /Quadriceps: .*direct/ }).click();
-    await page.getByText(/Quadriceps: \d+ direct \/ \d+ indirect sets/).waitFor();
+    await page.getByText("RECENT WORKOUTS", { exact: true }).waitFor();
+    const maps = page.locator('svg[aria-label$="muscle map"]');
+    assert.equal(await maps.count(), 4, "each workout has a front and back thumbnail");
+    const tiles = page.locator('[aria-label^="No workout on"], [aria-label^="Open workout from"]');
+    assert.equal(await tiles.count(), 14);
+    const positions = await tiles.evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)));
+    const rows = [...new Set(positions)];
+    assert.equal(rows.length, 2);
+    for (const top of rows) assert.equal(positions.filter((value) => value === top).length, 7);
+    assert.equal(await page.getByText("Biceps Curl", { exact: true }).count(), 0);
+    assert.ok(await maps.first().locator("path").count() > 30);
+    const frontColors = await maps.nth(0).locator("path").evaluateAll((paths) => paths.map((path) => path.getAttribute("fill")));
+    const otherColors = await maps.nth(2).locator("path").evaluateAll((paths) => paths.map((path) => path.getAttribute("fill")));
+    assert.notDeepEqual(frontColors, otherColors, "thumbnails reflect each workout individually");
+    assert.equal(await page.getByText("Direct", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("Female figure", { exact: true }).count(), 0);
+    assert.equal(await page.getByLabel(/Workouts on/).count(), 0);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `profile overflow at ${width}`);
-    await page.getByText("Muscle load", { exact: true }).evaluate((element) => element.scrollIntoView({ block: "start" }));
+    await page.getByText("RECENT WORKOUTS", { exact: true }).evaluate((element) => element.scrollIntoView({ block: "start" }));
     await page.screenshot({ path: `${output}/muscles-${width}.png` });
-    await page.getByText("Muscle load", { exact: true }).locator("..").screenshot({ path: `${output}/muscle-map-${width}.png` });
+    await maps.first().locator("../..").screenshot({ path: `${output}/muscle-map-${width}.png` });
+    await maps.nth(2).click();
+    await page.waitForURL("**/workout-detail?workoutId=101");
+    await page.goto(`${address}/settings`);
+    await page.getByRole("button", { name: /Rest timer/ }).waitFor();
+    assert.equal(await page.getByRole("textbox").count(), 0, "settings fields are initially collapsed");
+    await page.getByRole("button", { name: /Rest timer/ }).click();
+    await page.getByLabel("Rest minutes", { exact: true }).fill("2");
+    await page.getByLabel("Rest seconds", { exact: true }).fill("75");
+    await page.getByRole("button", { name: "Save timer", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: /Seconds must be below 60/ }).waitFor();
+    await page.getByLabel("Rest seconds", { exact: true }).fill("15");
+    await page.getByRole("button", { name: "Save timer", exact: true }).click();
+    await page.getByRole("button", { name: /Rest timer 2:15/ }).waitFor();
+    assert.equal(settings.restSeconds, 135);
+    await page.getByRole("button", { name: /Send feedback Share/ }).click();
+    await page.getByLabel("Feedback", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /Change password Update/ }).click();
+    assert.equal(await page.getByLabel("Feedback", { exact: true }).count(), 0);
+    await page.getByLabel("Current password", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /Change password Update/ }).click();
+    assert.equal(await page.getByRole("textbox").count(), 0);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `settings overflow at ${width}`);
+    await page.screenshot({ path: `${output}/settings-${width}.png` });
+    await page.goto(address);
+    await page.getByText("Ready to train?", { exact: true }).waitFor();
+    await page.getByText("20 / 300 XP", { exact: true }).waitFor();
+    const quote = await page.getByTestId("home-motivation").textContent();
+    await page.setViewportSize({ width: width + 1, height });
+    await page.waitForTimeout(100);
+    assert.equal(await page.getByTestId("home-motivation").textContent(), quote, "motivation stays stable during re-renders");
+    await page.setViewportSize({ width, height });
+    assert.equal(await page.getByText("Day streak", { exact: true }).count(), 1);
+    assert.equal(await page.getByTestId("home-streak").textContent(), "2");
+    assert.equal(await page.getByRole("button", { name: "Open Barbell Back Squat", exact: true }).locator("svg").count(), 0);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `home overflow at ${width}`);
+    await page.screenshot({ path: `${output}/home-${width}.png` });
+    await page.getByRole("button", { name: "Open Barbell Back Squat", exact: true }).click();
+    await page.waitForURL("**/workout-detail?workoutId=101");
+    await page.goto(address);
+    await page.getByRole("button", { name: "START WORKOUT", exact: true }).click();
+    await page.waitForURL("**/workout-setup");
+    await page.getByText("FREESTYLE", { exact: true }).first().waitFor();
+
+    await page.goto(`${address}/friends`);
+    await page.getByText("Leaderboard", { exact: true }).waitFor();
+    const leaders = page.getByRole("button", { name: /rank [13]$/ });
+    assert.equal(await leaders.count(), 3);
+    assert.equal(await page.getByText("#1", { exact: true }).count(), 2, "ties keep their server ranks");
+    const leaderBoxes = await Promise.all((await leaders.all()).map((row) => row.boundingBox()));
+    assert.ok(leaderBoxes.every((box) => box && box.width > 0 && Math.abs(box.height - leaderBoxes[0].height) <= 1));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `friends overflow at ${width}`);
+    await page.screenshot({ path: `${output}/friends-${width}.png` });
+    await page.getByText("Find friends", { exact: true }).first().click();
+    await page.getByPlaceholder("Search username...").waitFor();
+    if (width === 390) {
+      await page.goto(`${address}/settings`);
+      await page.getByRole("button", { name: /Appearance Dark/ }).click();
+      await page.getByRole("button", { name: "Light", exact: true }).click();
+      await page.getByRole("button", { name: /Appearance Light/ }).waitFor();
+      assert.equal(settings.theme, "LIGHT");
+      await page.screenshot({ path: `${output}/settings-light.png` });
+      await page.getByRole("button", { name: /Appearance Light/ }).click();
+      await page.getByRole("button", { name: "Dark", exact: true }).click();
+      await page.getByRole("button", { name: /Appearance Dark/ }).waitFor();
+    }
+    if (width === 390) {
+      await page.route("**/api/workouts/1", async (route) => {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(Array.from({ length: 5 }, (_, index) => ({ ...finished, id: 201 + index }))) });
+      });
+      await page.goto(address);
+      await page.getByRole("button", { name: "See all", exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Open Barbell Back Squat", exact: true }).count(), 3);
+      await page.getByRole("button", { name: "See all", exact: true }).click();
+      assert.equal(await page.getByRole("button", { name: "Open Barbell Back Squat", exact: true }).count(), 5);
+      await page.getByRole("button", { name: "Show less", exact: true }).click();
+      assert.equal(await page.getByRole("button", { name: "Open Barbell Back Squat", exact: true }).count(), 3);
+      let historyReads = 0;
+      const dates = await page.evaluate(() => ({
+        start: new Date(2026, 9, 1, 11).toISOString(),
+        end: new Date(2026, 9, 1, 12).toISOString(),
+        beforeMidnight: new Date(2026, 9, 4, 23, 59, 59).getTime(),
+      }));
+      const lastWorkout = { ...finished, startedAt: dates.start, endedAt: dates.end };
+      await page.route("**/api/workouts/1", async (route) => {
+        historyReads++;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([lastWorkout]) });
+      });
+      await page.clock.install({ time: new Date(dates.beforeMidnight) });
+      await page.goto(address);
+      await page.getByTestId("home-streak").waitFor();
+      await page.waitForFunction(() => document.querySelector('[data-testid="home-streak"]')?.textContent === "1");
+      const readsBeforeMidnight = historyReads;
+      await page.clock.fastForward(2000);
+      await page.waitForFunction(() => document.querySelector('[data-testid="home-streak"]')?.textContent === "0");
+      assert.equal(historyReads, readsBeforeMidnight, "midnight recomputes from history without polling");
+    }
     assert.deepEqual(errors, [], `browser errors at ${width}`);
-    console.log(`PASS ${width}px: columns, units, session labels, inputs, sets, dialogs, footer, overflow and anatomical map`);
+    console.log(`PASS ${width}px: workout flow, 14-day tiles, settings, home progress/navigation, stable motivation, rest-day streak, leaderboard ties and overflow`);
     await context.close();
   }
   assert.ok(mutations > 0, "existing draft persistence still runs");

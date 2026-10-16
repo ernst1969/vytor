@@ -2,6 +2,37 @@
 
 Alle wesentlichen Änderungen an Vytor werden in dieser Datei dokumentiert.
 
+## 2026-10-16 – Home-Redesign, Rest-Day-Streak und Settings
+
+### Added
+
+- Rest-Day-Streak aus eindeutigen lokalen Workout-Abschlusstagen: Bis zu zwei Ruhetage zwischen Trainings erhalten die Serie; ohne weiteres Workout verfällt sie erst zu Beginn des fünften Tages. Mehrere Workouts am selben Tag zählen einmal.
+- Gemeinsamer Fortschrittsbalken und Tageswechsel-Hook: Aktualisierung bei Home-Fokus, nach Abschluss/Neuladen, lokaler Mitternacht und Rückkehr aus dem Hintergrund, ohne separate Streak-Persistenz oder Polling.
+- Zehn Streak-Tests einschließlich Zeitzonen, Sommerzeit und Ablaufgrenze; insgesamt 16 UI-/Geometrie-/Kalender-/Streak-Tests.
+
+### Changed
+
+- Home an `vytor_home_design_variante_2.png` ausgerichtet: kleinere Wortmarke, angepasste Typografie und Abstände, dunkle Karten sowie dezenteres Orange (`#E89235`) mit passendem Start-Button-Verlauf.
+- Progress zeigt echte Monats-Workouts, Day Streak und globalen Rang. Der vorhandene Start-Flow sowie Level-/XP-/Ranking-Berechnungen bleiben erhalten.
+- Recent Workouts auf Home ohne Icons, mit lokalen Tagesangaben, Dauer und Detailnavigation; zunächst drei Einträge, weitere über „See all“.
+- Profil zeigt zwei Reihen à sieben Tageskacheln für die letzten 14 Tage inklusive heute. Je Tag erscheint die Muscle-Load-Vorschau des zuletzt abgeschlossenen Workouts; Tage ohne Training bleiben leer. Separate Muskel-Chips, Legende und Filter entfernt.
+- Friends-Leaderboard in einheitlichen Zeilen mit Rang, Namen, Level und XP; lange Namen, Trennlinien und Activity-Karten vereinheitlicht.
+- Settings als aufklappbare Buttons mit aktuellen Werten; Minuten-/Sekundenfelder für den Pausentimer. Logout ist ein eigener Button, Kontolöschung steht separat in der Danger Zone.
+- Zentrale Theme-/Layout-Tokens, responsive Übersichten und konsistente Navigation mit vier bestehenden Tabs.
+- TODO auf offene Aufgaben reduziert; abgeschlossene Einträge und doppelte Audit-Befunde entfernt.
+
+### Fixed
+
+- Entwürfe akzeptieren `restSeconds: null` als fehlende individuelle Pause. Dadurch scheitert das Speichern vor dem Workout-Abschluss nicht mehr mit „Invalid draft exercise“.
+- Ungültiger JSX-Leerzeichen-Textknoten im Footer der Übungsauswahl entfernt.
+
+### Validation und lokale Entwicklung
+
+- Lint, App-/Server-Typecheck, UI-/Logiktests und PostgreSQL-Integration geprüft; zusätzliche Regression für Speichern, Wiederherstellen und Abschluss mit leerer Pausenvorgabe sowie ungültige Pausenwerte.
+- Browserprüfung bei 320/344/360/390/768/1440 px: Workout-Flow, Tageskacheln, Settings, Home-Navigation, stabile Motivationssprüche, Leaderboard-Gleichstände, Theme-Wechsel und Streak-Verfall um Mitternacht ohne zusätzliche Historienabfrage.
+- Exporte für Web, iOS und Android erfolgreich; native Geräte- und Release-Abnahme bleiben offen.
+- Android-LAN-Verbindung nach Netzwerkdiagnose vom Nutzer als funktionierend bestätigt. Eine auf WLAN-Adresse und lokales Subnetz beschränkte Windows-Firewall-Freigabe für API-Port 3000 wurde lokal angelegt; sie ist keine versionierte App-Konfiguration. Die einzelne Netzwerkursache wurde nicht abschließend isoliert.
+
 ## 2026-10-16 – Responsives Workout-Layout und anatomische Muskelkarte
 
 - Gemeinsame Spalten für Überschriften und Eingaben aller fünf Messarten; 48-Punkte-Zeilen, einzeiliges SESSION und Einheiten innerhalb des Feldrahmens ohne Überlagerung.

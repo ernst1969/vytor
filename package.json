@@ -44,7 +44,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:ui": "server/node_modules/.bin/tsx --test scripts/workout-ui.test.ts"
+    "test:ui": "server/node_modules/.bin/tsx --test scripts/*.test.ts"
   },
   "private": true
 }

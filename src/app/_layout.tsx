@@ -17,7 +17,6 @@ import { getUser } from "@/services/api";
 
 function AppNavigator() {
   const { dark, colors } = useAppTheme();
-  const colorScheme = dark ? "dark" : "light";
   const router = useRouter();
   const segments = useSegments();
 
@@ -80,9 +79,7 @@ function AppNavigator() {
           alignItems: "center",
           justifyContent: "center",
           backgroundColor:
-            colorScheme === "dark"
-              ? DarkTheme.colors.background
-              : DefaultTheme.colors.background,
+            colors.background,
         }}
       >
         <ActivityIndicator size="large" />

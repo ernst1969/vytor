@@ -13,7 +13,7 @@ Mobile Trainings-App für iOS und Android mit Web-Ziel. Stand: 16. Oktober 2026.
 - Workout-Historie und gezielte Detailabfrage, Ergebnisansicht mit Gesamt-/Satz-XP, Levelbalken, geschätztem 1RM und Verbesserungen gegenüber früheren Trainings.
 - Freundschaftsanfragen, Freundesfeed und Profilbilder mit Initialen-Fallback. Vollständige Workout-Details sehen der Besitzer und bestätigte Freunde. Andere Profile verlinken die eigene Trainingsübersicht.
 - Globale Rangliste im Friends-Tab, eigener globaler Rang im Profil und XP-Ränge: Bronze ab 0, Silver ab 1.000, Gold ab 5.000, Platinum ab 15.000, Diamond ab 40.000 XP.
-- Anatomische Muskelkarte mit Vorder-/Rückansicht, männlicher/weiblicher Kontur und 7-Tage-/30-Tage-/Gesamtzeitraum. Die über OpenGym bereitgestellten MuscleMap-Konturen stehen unter MIT; vollständige Hinweise in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Vytors eigene Bewegungs-/Kategoriezuordnung trennt direkte und indirekte Belastung. Unbekannte Übungen werden ausdrücklich ausgewiesen.
+- Recent Workouts zeigen in zwei Reihen mit je sieben Tageskacheln (letzte 14 Tage inklusive heute), ohne Namen pro Training eine anatomische Muscle-Load-Vorschau mit Vorder-/Rückansicht: direkte Belastung kupferfarben, indirekte heller. Je Kalendertag wird das zuletzt abgeschlossene Workout angezeigt; ohne Filter oder Muskel-Chips; Antippen öffnet die Workout-Details. Die über OpenGym bereitgestellten MuscleMap-Konturen stehen unter MIT; vollständige Hinweise in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - Helles, dunkles und systemabhängiges Theme; Feedback, Passwortänderung und bestätigte Kontolöschung in Settings.
 
 ## Technik
@@ -145,11 +145,25 @@ Ein Development-Client-Profil setzt die zusätzliche Installation von `expo-dev-
 
 Expo-Dokumentation: [SDK 57](https://docs.expo.dev/versions/v57.0.0/), [Router](https://docs.expo.dev/router/introduction/), [EAS-Konfiguration](https://docs.expo.dev/build/eas-json/). `npm run reset-project` ist ein destruktives Starter-Skript und kein Wartungsbefehl.
 
+## Android, Expo-Tunnel und lokales Backend
+
+`npx expo start --tunnel` leitet den Expo-Entwicklungsserver weiter, nicht automatisch den API-Port. `EXPO_PUBLIC_API_URL` muss auf eine Adresse zeigen, die das Handy selbst erreichen kann. Prüfe im Handy-Browser `http://<Windows-LAN-IP>:3000/api/health`; erwartet wird `"status": "ok"`.
+
+Bei WSL 2 müssen die Windows-LAN-Adresse, die Weiterleitung auf die aktuelle WSL-IP und die Windows-Firewall zusammenpassen. Der API-Server lauscht bereits auf `0.0.0.0`. Firewall-Freigaben sollten auf API-Port, WLAN-Schnittstelle und lokales Subnetz begrenzt bleiben. Nach Änderungen an der API-Adresse Expo neu starten und die App neu laden. Lokale Windows-Firewall-Regeln werden nicht durch einen Git-Checkout übernommen.
+
+Dokumentation: [Expo-Tunnel](https://docs.expo.dev/more/expo-cli/#tunneling), [WSL-LAN-Zugriff](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-a-wsl-2-distribution-from-your-local-area-network-lan).
+
+## UI und Designsystem
+
+Die vier Tabs verwenden das bestehende App-Theme mit Anthrazit, grauen Karten und dem orangefarbenen Akzent der verbindlichen Datei `vytor_home_design_variante_2.png`. Gemeinsame Layout-Tokens in `src/constants/theme.ts` definieren Seitenabstände, Kartenradius und maximal 720 Punkte Inhaltsbreite für die Übersichten. Die Appearance-Auswahl bleibt erhalten.
+
+Home zeigt einen zufälligen, pro Mount stabilen Motivationsspruch, den vorhandenen Workout-Einstieg, echte Level-/XP-/Rangdaten und abgeschlossene Workouts ohne Icons. Die Workout-Anzahl zählt abgeschlossene Workouts im aktuellen lokalen Kalendermonat. Die Day Streak zählt eindeutige lokale Abschlusstage: Bis zu zwei Ruhetage zwischen Trainings sind erlaubt, bei mehr als drei Kalendertagen Abstand beginnt eine neue Serie. Ohne weiteres Training bleibt die Serie bis zum Ende des dritten Tages nach dem letzten Workout gültig und wird am folgenden Tageswechsel zu 0. `ProgressBar` wird von Home und Profil geteilt. Friends zeigt das unverändert vom Server gelieferte Ranking in ausgerichteten Zeilen; das Profil behält sein 14-Tage-Raster. Settings bleiben aufklappbar, mit separat abgegrenzter Danger Zone.
+
 ## Workout-Layout und Muskelkarte
 
 Header und Eingabezeilen nutzen dieselben Flex-Spalten in `WorkoutSetTable`. Einheiten besitzen einen reservierten Bereich innerhalb des Eingaberahmens. `SESSION` hat eine eigene Mindestbreite; alle Eingabezeilen und Bestätigungsbuttons sind 48 Punkte hoch. Die Karten nutzen auf Mobilgeräten die verfügbare Breite, auf großen Bildschirmen einen bis zu 1.100 Punkte breiten Inhaltsbereich. Der Footer steht außerhalb des Scrollbereichs; die Tab-Leiste wird während der Tastatureingabe ausgeblendet.
 
-`npm run test:ui` prüft Messarten, Session-Bezeichnungen, Platz auf 320-Punkte-Displays, anatomische Konturen, Muskelzuordnung und Farbskala. Die Server-Abhängigkeiten müssen dafür installiert sein.
+`npm run test:ui` prüft Messarten, Session-Bezeichnungen, Platz auf 320-Punkte-Displays, anatomische Konturen, Muskelzuordnung, Farbskala, das 14-Tage-Raster und die Rest-Day-Streak einschließlich Zeitzonen, Sommerzeit und mehrfacher Workouts am selben Tag. Die Server-Abhängigkeiten müssen dafür installiert sein.
 
 Für die reproduzierbare Browserprüfung (API-Antworten simuliert, keine Nutzerdaten):
 
@@ -160,4 +174,8 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/vytor-ui-browsers node /tmp/vytor-ui-verification/
 PLAYWRIGHT_BROWSERS_PATH=/tmp/vytor-ui-browsers PLAYWRIGHT_MODULE=/tmp/vytor-ui-verification/node_modules/playwright/index.mjs node scripts/workout-layout.browser.mjs
 ```
 
-Der Browserlauf prüft 320, 360, 390, 768 und 1.440 Pixel, ausgerichtete Spalten, Einheiten, Overflow, Eingaben, Satzaktionen, Entwurfsspeicherung, Abschluss/Verwerfen, Footer und Muskelkarte. Screenshots liegen unter `/tmp/vytor-layout-screenshots`. Native Tastatur-/Safe-Area-Prüfungen benötigen weiterhin reale iOS-/Android-Geräte. Der vorherige TODO-Audit hat außerdem noch offene Synchronisations- und Drop-Set-Randfälle festgestellt; diese Layoutänderung ändert keine Backend- oder Persistenzverträge.
+Der Browserlauf prüft 320, 344 (Referenzbreite), 360, 390, 768 und 1.440 Pixel, ausgerichtete Spalten, Einheiten, Overflow, Eingaben, Satzaktionen, Entwurfsspeicherung, Abschluss/Verwerfen, Footer, Muskelkarte, alle vier Tabs, stabile Home-Sprüche, echte Progress-Darstellung aus API-Antworten, Start-/Detailnavigation, Leaderboard-Gleichstände, lange Namen sowie Hell-/Dunkel-Auswahl und den Streak-Verfall am lokalen Tageswechsel ohne Polling. Screenshots liegen unter `/tmp/vytor-layout-screenshots`. Native Tastatur-/Safe-Area-Prüfungen benötigen weiterhin reale iOS-/Android-Geräte. Der vorherige TODO-Audit hat außerdem noch offene Synchronisations- und Drop-Set-Randfälle festgestellt; diese Layoutänderung ändert keine Backend- oder Persistenzverträge.
+
+Die Settings öffnen Eingaben über einzelne Buttons; der Standard-Pausentimer wird in getrennten Minuten-/Sekundenfeldern eingestellt.
+
+Die Streak wird ausschließlich aus der vorhandenen Workout-Historie berechnet. Home lädt sie beim Öffnen bzw. nach dem Abschluss erneut. Ein einzelner Timeout bis zur nächsten lokalen Mitternacht und die Rückkehr aus dem Hintergrund aktualisieren die Tagesanzeige; beim Verlassen des Screens wird der Timeout entfernt. Es gibt keine separate Streak-Persistenz, Rewards oder zusätzlichen Hintergrundabfragen.

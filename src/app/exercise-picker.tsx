@@ -373,7 +373,8 @@ export default function ExercisePickerScreen() {
 
         </ScrollView>
       )}
-      <View style={{ padding: 12 }}>          {mode === "freestyle" &&
+      <View style={{ padding: 12 }}>
+        {mode === "freestyle" &&
             selectedExercises.length > 0 && (
               <Pressable
                 style={[
@@ -394,7 +395,8 @@ export default function ExercisePickerScreen() {
                     : `START WORKOUT (${selectedExercises.length})`}
                 </Text>
               </Pressable>
-            )}</View>
+            )}
+      </View>
 
     </SafeAreaView>
   );

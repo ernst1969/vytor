@@ -61,3 +61,21 @@ test("untrained regions stay neutral and indirect regions use lighter copper", (
   assert.notEqual(indirect, copper.toLowerCase());
   assert.ok(parseInt(indirect.slice(1, 3), 16) > parseInt(copper.slice(1, 3), 16), "indirect copper is visibly lighter");
 });
+
+
+test("recent workout tiles represent 14 local calendar days and select the latest completion", async () => {
+  const { recentWorkoutDays } = await import("../src/utils/recent-workouts");
+  const now = new Date(2026, 9, 16, 20);
+  const completed = (id: number, day: number, hour: number) => ({ id, endedAt: new Date(2026, 9, day, hour).toISOString() });
+  const days = recentWorkoutDays([completed(1, 16, 9), completed(2, 3, 10), completed(3, 16, 18), completed(4, 2, 12), completed(5, 17, 9), { id: 6, endedAt: null }], now);
+  assert.equal(days.length, 14);
+  assert.equal(days[0].date.getDate(), 3);
+  assert.equal(days[0].workout?.id, 2);
+  assert.equal(days[13].date.getDate(), 16);
+  assert.equal(days[13].workout?.id, 3);
+  assert.ok(days.slice(1, 13).every((day) => !day.workout));
+  const crossing = recentWorkoutDays([], new Date(2026, 10, 2, 12));
+  assert.equal(crossing[0].date.getMonth(), 9);
+  assert.equal(crossing[0].date.getDate(), 20);
+  assert.equal(new Set(crossing.map((day) => day.date.toLocaleDateString())).size, 14);
+});

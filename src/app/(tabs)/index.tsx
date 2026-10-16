@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -20,7 +20,7 @@ import { formatTime, parseTime } from "@/utils/duration";
 import { type AppPalette } from "@/constants/theme";
 import { useAppTheme } from "@/context/theme-context";
 import { useWorkout } from "@/context/workout-context";
-import { checkBackend } from "../../services/api";
+import { HomeDashboard } from "@/components/home-dashboard";
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
@@ -56,16 +56,9 @@ export default function HomeScreen() {
   }
 
 
-  const [backendStatus, setBackendStatus] = useState("Checking...");
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
     null,
   );
-
-  useEffect(() => {
-    checkBackend()
-      .then(() => setBackendStatus("Connected"))
-      .catch(() => setBackendStatus("Disconnected"));
-  }, []);
 
   function toggleExerciseMenu(exerciseId: string) {
     setSelectedExerciseId((current) =>
@@ -365,41 +358,14 @@ export default function HomeScreen() {
         </KeyboardAwareScrollView>
         <View style={[styles.bottomActions, { paddingLeft: 12 + insets.left, paddingRight: 12 + insets.right }]}><View style={styles.bottomActionsInner}>
           <Pressable accessibilityRole="button" disabled={busy} style={styles.bottomButton} onPress={() => setDialog("discard")}><Text numberOfLines={1} adjustsFontSizeToFit style={styles.deleteText}>End / Discard</Text></Pressable>
-          <Pressable accessibilityRole="button" disabled={busy} style={[styles.bottomButton, { backgroundColor: Colors.accent }]} onPress={() => setDialog("finish")}><Text numberOfLines={1} adjustsFontSizeToFit style={{ color: "#fff", fontWeight: "800" }}>Finish Workout</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} style={[styles.bottomButton, { backgroundColor: Colors.accent }]} onPress={() => setDialog("finish")}><Text numberOfLines={1} adjustsFontSizeToFit style={{ color: Colors.onAccent, fontWeight: "800" }}>Finish Workout</Text></Pressable>
         </View></View>
         <ConfirmDialog visible={dialog !== null} busy={busy} title={dialog === "reload" ? "Reload server workout?" : dialog === "finish" ? "Finish workout?" : "Discard workout?"} message={dialog === "reload" ? "Unsynced changes on this device will be replaced with the server workout. Continue?" : dialog === "finish" ? (() => { const pending = exercises.flatMap((item) => item.sets.filter((set) => !set.completed).map((set) => `□ ${item.name}: ${workoutRowLabel(item.name, item.measurementType)} ${set.setNumber} (${set.setType.toLowerCase()})`)); return pending.length ? `These sets are unfinished and will not be recorded:\n\n${pending.join("\n")}\n\nSave completed sets and finish anyway?` : "All sets completed. Save your workout?"; })() : "This removes the active workout and its sets permanently."} onCancel={() => setDialog(null)} onConfirm={() => void confirmAction()} confirmLabel={dialog === "reload" ? "Reload" : dialog === "finish" ? "Finish Workout" : "Discard"} />
       </KeyboardAvoidingView>
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.startContent}>
-        <Text style={styles.title}>
-          Vytor
-        </Text>
-
-        <Text style={styles.subtitle}>
-          Ready to train?
-        </Text>
-
-        <Pressable
-          style={styles.startButton}
-          onPress={() =>
-            router.push("/workout-setup")
-          }
-        >
-          <Text style={styles.startButtonText}>
-            START WORKOUT
-          </Text>
-        </Pressable>
-
-        <Text style={styles.backendStatus}>
-          Backend: {backendStatus}
-        </Text>
-      </View>
-    </View>
-  );
+  return <HomeDashboard />;
 }
 
 const createStyles = (Colors: AppPalette) => StyleSheet.create({
@@ -412,48 +378,6 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
     minWidth: 0,
-  },
-
-  startContent: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    marginBottom: 12,
-    color: Colors.text,
-  },
-
-  subtitle: {
-    fontSize: 18,
-    marginBottom: 32,
-    color: Colors.textMuted,
-  },
-
-  startButton: {
-    width: "100%",
-    maxWidth: 360,
-    paddingVertical: 18,
-    borderRadius: 8,
-    alignItems: "center",
-    backgroundColor: Colors.accent,
-  },
-
-  startButtonText: {
-    color: Colors.background,
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-
-  backendStatus: {
-    marginTop: 24,
-    fontSize: 14,
-    color: Colors.textMuted,
   },
 
   workoutContent: {
