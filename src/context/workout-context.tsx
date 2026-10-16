@@ -971,6 +971,10 @@ export function WorkoutProvider({
           1,
         );
 
+        if (!movedExercise) {
+          return current;
+        }
+
         reordered.splice(
           newIndex,
           0,
@@ -1055,11 +1059,16 @@ export function WorkoutProvider({
       storedUserId,
     );
 
-    const nextOrder = exercises.map((item) =>
-      item.id === exerciseId ? databaseExercise.id : item.workoutExerciseId,
-    );
+    const nextOrder = exercises.flatMap((item) => {
+      const id =
+        item.id === exerciseId
+          ? databaseExercise.id
+          : item.workoutExerciseId;
 
-    if (nextOrder.every((id): id is number => id !== undefined)) {
+      return id === undefined ? [] : [id];
+    });
+
+    if (nextOrder.length === exercises.length) {
       await updateWorkoutExerciseOrder(workoutId, nextOrder);
     }
 
