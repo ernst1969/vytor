@@ -11,9 +11,10 @@ import {
 
 import { type AppPalette } from "@/constants/theme";
 import { useAppTheme } from "@/context/theme-context";
+import { workoutRowLabel } from "@/utils/workout-layout";
 import { formatTime } from "@/utils/duration";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getWorkoutDetail } from "@/services/api";
+import { getWorkoutDetail, type ExerciseMeasurementType } from "@/services/api";
 
 type WorkoutSet = {
   id: number;
@@ -34,6 +35,7 @@ type WorkoutExercise = {
     id: number;
     name: string;
     description?: string | null;
+    measurementType?: ExerciseMeasurementType;
   };
   sets: WorkoutSet[];
 };
@@ -260,8 +262,8 @@ export default function WorkoutDetailScreen() {
                 <Text style={styles.exerciseSetCount}>
                   {exercise.sets.length}{" "}
                   {exercise.sets.length === 1
-                    ? "set"
-                    : "sets"}
+                    ? workoutRowLabel(exercise.exercise.name, exercise.exercise.measurementType).toLowerCase()
+                    : `${workoutRowLabel(exercise.exercise.name, exercise.exercise.measurementType).toLowerCase()}s`}
                 </Text>
               </View>
 
@@ -275,7 +277,7 @@ export default function WorkoutDetailScreen() {
                 <View style={styles.sets}>
                   <View style={styles.setHeader}>
                     <Text style={styles.setHeaderText}>
-                      SET
+                      {workoutRowLabel(exercise.exercise.name, exercise.exercise.measurementType).toUpperCase()}
                     </Text>
 
                     <Text style={styles.setHeaderText}>DETAILS</Text>

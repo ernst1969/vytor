@@ -100,6 +100,7 @@ export default function TabLayout() {
             height: 70 + insets.bottom,
             paddingBottom: insets.bottom,
           },
+          tabBarHideOnKeyboard: true,
           tabBarActiveTintColor: Colors.text,
           tabBarInactiveTintColor: Colors.textMuted,
           headerShown: false,

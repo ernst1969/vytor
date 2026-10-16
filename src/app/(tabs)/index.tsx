@@ -1,7 +1,6 @@
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,9 +8,13 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { WorkoutSetTable } from "@/components/workout-set-table";
+import { workoutRowLabel } from "@/utils/workout-layout";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatTime, parseTime } from "@/utils/duration";
 import { type AppPalette } from "@/constants/theme";
@@ -19,25 +22,18 @@ import { useAppTheme } from "@/context/theme-context";
 import { useWorkout } from "@/context/workout-context";
 import { checkBackend } from "../../services/api";
 
-type LayoutPosition = {
-  y: number;
-};
-
 export default function HomeScreen() {
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const compact = width < 420;
   const { colors: Colors } = useAppTheme();
   const styles = createStyles(Colors);
   const {
     notes, setNotes, syncStatus, reloadActiveWorkout, updateExerciseNotes, setTimer, savePreset, finishWorkout, cancelActiveWorkout,
     isActive,
     exercises,
-    addSet,
-    deleteSet,
-    setSetType,
-    addDropSet,
     updateExerciseRest,
     restSeconds,
-    updateSet,
-    completeSet,
     updateWeightUnit,
     updateDistanceUnit,
     deleteExercise,
@@ -64,63 +60,12 @@ export default function HomeScreen() {
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
     null,
   );
-  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
-
-  const scrollViewRef =
-    useRef<KeyboardAwareScrollView | null>(null);
-
-  const exercisePositions =
-    useRef<Record<string, LayoutPosition>>({});
-
-  const setPositions =
-    useRef<Record<string, LayoutPosition>>({});
 
   useEffect(() => {
     checkBackend()
       .then(() => setBackendStatus("Connected"))
       .catch(() => setBackendStatus("Disconnected"));
   }, []);
-
-  function handleExerciseLayout(exerciseId: string, y: number) {
-    exercisePositions.current[exerciseId] = { y };
-  }
-
-  function handleSetLayout(setId: string, y: number) {
-    setPositions.current[setId] = { y };
-  }
-
-  function scrollToSet(exerciseId: string, setId: string) {
-    setTimeout(() => {
-      const exercisePosition =
-        exercisePositions.current[exerciseId];
-
-      const setPosition = setPositions.current[setId];
-
-      if (!exercisePosition || !setPosition) {
-        return;
-      }
-
-      const screenHeight = Dimensions.get("window").height;
-      const keyboardHeight = 300;
-      const visibleHeight = screenHeight - keyboardHeight;
-      const targetCenter = visibleHeight / 2;
-      const setHeight = 46;
-
-      const setY =
-        exercisePosition.y + setPosition.y;
-
-      const targetY =
-        setY -
-        targetCenter +
-        setHeight / 2;
-
-      scrollViewRef.current?.scrollToPosition(
-        0,
-        Math.max(0, targetY),
-        true,
-      );
-    }, 150);
-  }
 
   function toggleExerciseMenu(exerciseId: string) {
     setSelectedExerciseId((current) =>
@@ -210,23 +155,25 @@ export default function HomeScreen() {
 
   if (isActive) {
     return (
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={64 + insets.top} style={styles.container}>
         <View style={styles.workoutToolbar}>
-          <Pressable accessibilityLabel="Open saved workouts and templates" onPress={() => router.push("/workout-setup")}><Text style={styles.workoutToolbarTitle}>ACTIVE WORKOUT · PRESETS ›</Text></Pressable>
+          <Pressable style={{ flex: 1, minWidth: 0 }} accessibilityLabel="Open saved workouts and templates" onPress={() => router.push("/workout-setup")}><Text numberOfLines={1} style={styles.workoutToolbarTitle}>ACTIVE WORKOUT · PRESETS ›</Text></Pressable>
           <Pressable style={styles.quickAddButton} onPress={() => router.push("/exercise-picker")}>
             <Text style={styles.quickAddText}>+ EXERCISE</Text>
           </Pressable>
         </View>
         <KeyboardAwareScrollView
-          ref={scrollViewRef}
-          contentContainerStyle={styles.workoutContent}
+          style={{ flex: 1, minWidth: 0 }}
+          contentContainerStyle={[styles.workoutContent, { paddingHorizontal: (compact ? 8 : 24) + Math.max(insets.left, insets.right) }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           enableOnAndroid
-          enableAutomaticScroll={false}
+          enableAutomaticScroll
+          extraScrollHeight={24}
           enableResetScrollToCoords={false}
           showsVerticalScrollIndicator={false}
         >
+          <View style={styles.workoutInner}>
           <Text style={styles.optionText}>{syncStatus}</Text>
           <Pressable onPress={() => setDialog("reload")}><Text style={styles.quickAddText}>Reload server workout</Text></Pressable>
           {!!error && <Text accessibilityRole="alert" style={styles.deleteText}>{error}</Text>}
@@ -240,12 +187,7 @@ export default function HomeScreen() {
               <View
                 key={exercise.id}
                 style={styles.exerciseCard}
-                onLayout={(event) =>
-                  handleExerciseLayout(
-                    exercise.id,
-                    event.nativeEvent.layout.y,
-                  )
-                }
+
               >
                 {/* Entire header is the touch target */}
                 <Pressable
@@ -259,7 +201,7 @@ export default function HomeScreen() {
                   hitSlop={6}
                 >
                   <View style={styles.exerciseHeaderContent}>
-                    <Text style={styles.exerciseName}>
+                    <Text numberOfLines={3} style={styles.exerciseName}>
                       {exercise.name}
                     </Text>
 
@@ -406,164 +348,7 @@ export default function HomeScreen() {
                 )}
 
                 <TextInput accessibilityLabel={`Form cues for ${exercise.name}`} multiline maxLength={2000} placeholder="Permanent form cues" placeholderTextColor={Colors.textMuted} value={exercise.notes ?? ""} onChangeText={(value) => updateExerciseNotes(exercise.id, value)} style={[styles.input, { textAlign: "left", marginBottom: 10 }]} />
-                <View style={styles.columnHeader}>
-                  <Text style={styles.setHeader}>{/boxing|muay|kickboxing/i.test(exercise.name) ? "SESSION" : "SET"}</Text>
-                  <Text style={styles.previousHeader}>LAST</Text>
-                  {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && (
-                    <Text style={styles.inputHeader}>WEIGHT</Text>
-                  )}
-                  {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && (
-                    <Text style={styles.inputHeader}>REPS</Text>
-                  )}
-                  {(exercise.measurementType === "DISTANCE_TIME" || exercise.measurementType === "WEIGHT_DISTANCE") && (
-                    <Text style={styles.inputHeader}>DISTANCE</Text>
-                  )}
-                  {(exercise.measurementType === "TIME" || exercise.measurementType === "DISTANCE_TIME") && (
-                    <Text style={styles.inputHeader}>TIME</Text>
-                  )}
-                  <View style={styles.actionHeader} />
-                </View>
-
-                {exercise.sets.map((set, setIndex) => {
-                  const previousSet =
-                    exercise.previousSets?.find(
-                      (previous) =>
-                        previous.setNumber ===
-                        set.setNumber,
-                    );
-
-                  const previousValues = previousSet
-                    ? [previousSet.weight === null ? null : Number((previousSet.weight * (exercise.weightUnit === "LBS" ? 2.2046226218 : 1)).toFixed(2)), previousSet.reps, previousSet.distance === null ? null : Number((previousSet.distance * (exercise.distanceUnit === "MI" ? 0.6213711922 : 1)).toFixed(2)), previousSet.durationSeconds === null ? null : formatTime(previousSet.durationSeconds)]
-                        .filter((value) => value !== null)
-                    : [];
-                  const previousText = previousValues.length ? previousValues.join("/") : "—";
-
-                  return (
-                    <View key={set.id} style={set.setType === "DROP" ? { marginLeft: 12, borderLeftWidth: 2, borderLeftColor: Colors.accent, paddingLeft: 4 } : undefined}>
-                    <View style={styles.setRow} onLayout={(event) => handleSetLayout(set.id, event.nativeEvent.layout.y)}>
-                      <Pressable style={styles.setNumberButton} onPress={() => setSelectedSetId(selectedSetId === set.id ? null : set.id)}>
-                        <Text style={[styles.setNumber, set.setType !== "REGULAR" && styles.specialSetNumber]}>
-                          {set.setType === "WARMUP" ? "W" : set.setType === "DROP" || exercise.sets[setIndex + 1]?.setType === "DROP" ? "D" : exercise.sets.slice(0, setIndex + 1).filter((item) => item.setType === "REGULAR").length}
-                        </Text>
-                      </Pressable>
-
-                      <Text style={styles.previousValue}>
-                        {previousText}
-                      </Text>
-
-                      {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && <TextInput
-                        style={styles.input}
-                        value={set.weight}
-                        onFocus={() =>
-                          scrollToSet(
-                            exercise.id,
-                            set.id,
-                          )
-                        }
-                        onChangeText={(value) =>
-                          updateSet(
-                            exercise.id,
-                            set.id,
-                            "weight",
-                            value,
-                          )
-                        }
-                        keyboardType="decimal-pad"
-                        placeholder="0"
-                        placeholderTextColor={
-                          Colors.textMuted
-                        }
-                      />}
-                      {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && <Text style={styles.unit}>{exercise.weightUnit === "KG" ? "kg" : "lb"}</Text>}
-
-                      {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && <TextInput
-                        style={styles.input}
-                        value={set.reps}
-                        onFocus={() =>
-                          scrollToSet(
-                            exercise.id,
-                            set.id,
-                          )
-                        }
-                        onChangeText={(value) =>
-                          updateSet(
-                            exercise.id,
-                            set.id,
-                            "reps",
-                            value,
-                          )
-                        }
-                        keyboardType="number-pad"
-                        placeholder={set.targetReps || "reps"}
-                        placeholderTextColor={
-                          Colors.textMuted
-                        }
-                      />}
-
-                      {(exercise.measurementType === "DISTANCE_TIME" || exercise.measurementType === "WEIGHT_DISTANCE") && <TextInput
-                        style={styles.input}
-                        value={set.distance}
-                        onFocus={() => scrollToSet(exercise.id, set.id)}
-                        onChangeText={(value) => updateSet(exercise.id, set.id, "distance", value)}
-                        keyboardType="decimal-pad"
-                        placeholder="0"
-                        placeholderTextColor={Colors.textMuted}
-                      />}
-
-                      {(exercise.measurementType === "DISTANCE_TIME" || exercise.measurementType === "WEIGHT_DISTANCE") && <Text style={styles.unit}>{exercise.distanceUnit.toLowerCase()}</Text>}
-                      {(exercise.measurementType === "TIME" || exercise.measurementType === "DISTANCE_TIME") && <TextInput
-                        style={styles.input}
-                        value={set.durationSeconds ? formatTime(Number(set.durationSeconds)) : ""}
-                        onFocus={() => scrollToSet(exercise.id, set.id)}
-                        onChangeText={(value) => { const seconds = parseTime(value); if (value === "") updateSet(exercise.id, set.id, "durationSeconds", ""); else if (seconds !== null) updateSet(exercise.id, set.id, "durationSeconds", String(seconds)); else setError("Minutes and seconds must be below 60"); }}
-                        keyboardType="number-pad"
-                        placeholder="00:00:00"
-                        placeholderTextColor={Colors.textMuted}
-                      />}
-
-                      <Pressable
-                        style={[
-                          styles.finishSetButton,
-                          set.completed &&
-                            styles.finishSetButtonCompleted,
-                        ]}
-                        onPress={() =>
-                          completeSet(exercise.id, set.id) || setError("Enter valid non-negative values for this set first")
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.finishSetText,
-                            set.completed &&
-                              styles.finishSetTextCompleted,
-                          ]}
-                        >
-                          ✓
-                        </Text>
-                      </Pressable>
-                    </View>
-                    {selectedSetId === set.id && (
-                      <View style={styles.setOptions}>
-                        {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && <TextInput accessibilityLabel="Target reps" keyboardType="number-pad" placeholder="Target reps" placeholderTextColor={Colors.textMuted} value={set.targetReps ?? ""} onChangeText={(value) => { if (/^\d{0,3}$/.test(value)) updateSet(exercise.id, set.id, "targetReps", value); }} style={[styles.input, { minWidth: 110 }]} />}
-                        <Pressable style={styles.setOption} onPress={() => { addSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.setOptionText}>Add another Set</Text></Pressable>
-                        <Pressable style={styles.setOption} onPress={() => setSetType(exercise.id, set.id, "WARMUP")}><Text style={styles.setOptionText}>Warm-up</Text></Pressable>
-                        <Pressable style={styles.setOption} onPress={() => setSetType(exercise.id, set.id, "REGULAR")}><Text style={styles.setOptionText}>Regular</Text></Pressable>
-                        <Pressable style={styles.setOption} onPress={() => { addDropSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.setOptionText}>+ Drop set</Text></Pressable>
-                        <Pressable style={styles.setOption} onPress={() => { deleteSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.deleteText}>Delete set</Text></Pressable>
-                      </View>
-                    )}
-                    </View>
-                  );
-                })}
-
-                <Pressable
-                  style={styles.addSetButton}
-                  onPress={() => addSet(exercise.id)}
-                >
-                  <Text style={styles.addSetText}>
-                    + SET
-                  </Text>
-                </Pressable>
+                <WorkoutSetTable exercise={exercise} compact={compact} onError={setError} />
               </View>
             );
           })}
@@ -576,22 +361,13 @@ export default function HomeScreen() {
             </View>
           )}
 
-          <Pressable
-            style={styles.addExerciseButton}
-            onPress={() =>
-              router.push("/exercise-picker")
-            }
-          >
-            <Text style={styles.addExerciseText}>
-              + ADD EXERCISE
-            </Text>
-          </Pressable>
+          </View>
         </KeyboardAwareScrollView>
-        <View style={styles.bottomActions}>
-          <Pressable accessibilityRole="button" disabled={busy} style={styles.bottomButton} onPress={() => setDialog("discard")}><Text style={styles.deleteText}>End / Discard</Text></Pressable>
-          <Pressable accessibilityRole="button" disabled={busy} style={[styles.bottomButton, { backgroundColor: Colors.accent }]} onPress={() => setDialog("finish")}><Text style={{ color: "#fff", fontWeight: "800" }}>Finish Workout</Text></Pressable>
-        </View>
-        <ConfirmDialog visible={dialog !== null} busy={busy} title={dialog === "reload" ? "Reload server workout?" : dialog === "finish" ? "Finish workout?" : "Discard workout?"} message={dialog === "reload" ? "Unsynced changes on this device will be replaced with the server workout. Continue?" : dialog === "finish" ? (() => { const pending = exercises.flatMap((item) => item.sets.filter((set) => !set.completed).map((set) => `□ ${item.name}: ${set.setType.toLowerCase()} ${set.setNumber}`)); return pending.length ? `These sets are unfinished and will not be recorded:\n\n${pending.join("\n")}\n\nSave completed sets and finish anyway?` : "All sets completed. Save your workout?"; })() : "This removes the active workout and its sets permanently."} onCancel={() => setDialog(null)} onConfirm={() => void confirmAction()} confirmLabel={dialog === "reload" ? "Reload" : dialog === "finish" ? "Finish Workout" : "Discard"} />
+        <View style={[styles.bottomActions, { paddingLeft: 12 + insets.left, paddingRight: 12 + insets.right }]}><View style={styles.bottomActionsInner}>
+          <Pressable accessibilityRole="button" disabled={busy} style={styles.bottomButton} onPress={() => setDialog("discard")}><Text numberOfLines={1} adjustsFontSizeToFit style={styles.deleteText}>End / Discard</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} style={[styles.bottomButton, { backgroundColor: Colors.accent }]} onPress={() => setDialog("finish")}><Text numberOfLines={1} adjustsFontSizeToFit style={{ color: "#fff", fontWeight: "800" }}>Finish Workout</Text></Pressable>
+        </View></View>
+        <ConfirmDialog visible={dialog !== null} busy={busy} title={dialog === "reload" ? "Reload server workout?" : dialog === "finish" ? "Finish workout?" : "Discard workout?"} message={dialog === "reload" ? "Unsynced changes on this device will be replaced with the server workout. Continue?" : dialog === "finish" ? (() => { const pending = exercises.flatMap((item) => item.sets.filter((set) => !set.completed).map((set) => `□ ${item.name}: ${workoutRowLabel(item.name, item.measurementType)} ${set.setNumber} (${set.setType.toLowerCase()})`)); return pending.length ? `These sets are unfinished and will not be recorded:\n\n${pending.join("\n")}\n\nSave completed sets and finish anyway?` : "All sets completed. Save your workout?"; })() : "This removes the active workout and its sets permanently."} onCancel={() => setDialog(null)} onConfirm={() => void confirmAction()} confirmLabel={dialog === "reload" ? "Reload" : dialog === "finish" ? "Finish Workout" : "Discard"} />
       </KeyboardAvoidingView>
     );
   }
@@ -627,12 +403,15 @@ export default function HomeScreen() {
 }
 
 const createStyles = (Colors: AppPalette) => StyleSheet.create({
-  bottomActions: { flexDirection: "row", gap: 10, padding: 12, backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.border },
-  bottomButton: { flex: 1, minHeight: 48, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  workoutInner: { width: "100%", maxWidth: 1100, alignSelf: "center", minWidth: 0 },
+  bottomActionsInner: { flexDirection: "row", gap: 10, width: "100%", maxWidth: 1100, alignSelf: "center" },
+  bottomActions: { padding: 12, flexShrink: 0, backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.border },
+  bottomButton: { flex: 1, minWidth: 0, paddingHorizontal: 8, minHeight: 48, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   unit: { color: Colors.textMuted, fontSize: 10 },
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+    minWidth: 0,
   },
 
   startContent: {
@@ -680,7 +459,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
   workoutContent: {
     paddingHorizontal: 12,
     paddingTop: 14,
-    paddingBottom: 120,
+    paddingBottom: 24,
   },
 
   workoutToolbar: {
@@ -700,7 +479,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   exerciseCard: {
     marginBottom: 14,
-    padding: 12,
+    padding: 10,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 7,
@@ -730,6 +509,7 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
 
   exerciseName: {
     flex: 1,
+    minWidth: 0,
     color: Colors.text,
     fontSize: 17,
     fontWeight: "800",
@@ -831,75 +611,12 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     fontWeight: "700",
   },
 
-  columnHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 5,
-  },
-
-  setHeader: {
-    width: 28,
-    color: Colors.textMuted,
-    fontSize: 9,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-
-  previousHeader: {
-    width: 62,
-    color: Colors.textMuted,
-    fontSize: 9,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-
-  inputHeader: {
-    flex: 1,
-    color: Colors.textMuted,
-    fontSize: 9,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-
-  actionHeader: {
-    width: 44,
-  },
-
-  setRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-    minHeight: 46,
-  },
-
-  setNumber: {
-    width: 28,
-    color: Colors.textMuted,
-    fontSize: 14,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-
-  setNumberButton: { width: 28, minHeight: 42, alignItems: "center", justifyContent: "center" },
-  specialSetNumber: { color: Colors.accent },
-  setOptions: { marginLeft: 28, marginBottom: 8, flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  setOption: { minHeight: 34, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, borderRadius: 5 },
-  setOptionText: { color: Colors.text, fontSize: 11, fontWeight: "700" },
-
-  previousValue: {
-    width: 62,
-    color: Colors.textMuted,
-    opacity: 0.45,
-    fontSize: 14,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-
   input: {
-    flex: 1,
-    height: 42,
-    marginHorizontal: 3,
-    paddingHorizontal: 5,
+    width: "100%",
+    minWidth: 0,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 5,
@@ -908,68 +625,6 @@ const createStyles = (Colors: AppPalette) => StyleSheet.create({
     textAlign: "center",
     fontSize: 14,
     fontWeight: "600",
-  },
-
-  finishSetButton: {
-    width: 44,
-    height: 42,
-    marginLeft: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 5,
-    backgroundColor: Colors.background,
-  },
-
-  finishSetText: {
-    color: Colors.accent,
-    fontSize: 21,
-    fontWeight: "900",
-  },
-
-  finishSetButtonCompleted: {
-    backgroundColor: Colors.accent,
-    borderColor: Colors.accent,
-  },
-
-  finishSetTextCompleted: {
-    color: Colors.background,
-  },
-
-  addSetButton: {
-    marginTop: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 9,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-
-  addSetText: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-
-  addExerciseButton: {
-    marginTop: 4,
-    marginBottom: 24,
-    paddingVertical: 16,
-    borderWidth: 1,
-    borderColor: Colors.accent,
-    borderRadius: 7,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.surface,
-  },
-
-  addExerciseText: {
-    color: Colors.accent,
-    fontSize: 14,
-    fontWeight: "900",
-    letterSpacing: 1,
   },
 
   empty: {

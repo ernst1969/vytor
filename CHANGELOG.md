@@ -2,6 +2,17 @@
 
 Alle wesentlichen Änderungen an Vytor werden in dieser Datei dokumentiert.
 
+## 2026-10-16 – Responsives Workout-Layout und anatomische Muskelkarte
+
+- Gemeinsame Spalten für Überschriften und Eingaben aller fünf Messarten; 48-Punkte-Zeilen, einzeiliges SESSION und Einheiten innerhalb des Feldrahmens ohne Überlagerung.
+- Volle mobile Inhaltsbreite, begrenzte Desktopbreite, konsistente Kartenabstände, lange Übungsnamen und unverrückte Drop-Markierungen.
+- Footer außerhalb des Scrollbereichs, automatische Tastatur-Scrollhilfe und ausgeblendete Tab-Leiste bei Tastatureingabe.
+- Set-/Session-Bezeichnungen in Satzaktionen, Abschlusscheckliste und Detailansicht vereinheitlicht.
+- Anatomische MuscleMap-Konturen aus OpenGyms separat MIT-lizenzierten Geometriedaten; Vorder-/Rückseite, zwei Körperformen, Zeitraumfilter, interaktive Muskeln und hellere indirekte Kupfertöne.
+- Eigene detaillierte Bewegungs-/Kategoriezuordnung und vollständige Drittanbieterhinweise; keine AGPL-Anwendungslogik übernommen.
+- Expo-kompatibles `react-native-svg`, fünf UI-/Geometrietests und Browser-Prüfskript für fünf Bildschirmbreiten.
+- Bestehende API-Schnittstellen, Datenmodelle und Workout-Geschäftslogik bleiben erhalten. Offene Punkte aus dem TODO-Audit sind separat gekennzeichnet.
+
 ## 2026-10-16 – TODO-Umsetzung
 
 ### Added

@@ -32,6 +32,7 @@ type WorkoutExercise = {
     id: number;
     name: string;
     description?: string | null;
+    category?: string | null;
   };
   sets: WorkoutSet[];
 };
@@ -364,7 +365,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <MuscleOverview exercises={workouts.filter((item) => new Date(item.endedAt ?? item.startedAt).getTime() >= now - 7 * 86400000).flatMap((item) => item.exercises.map((entry) => ({ name: entry.exercise.name, sets: entry.sets.length })))} />
+      <MuscleOverview now={now} exercises={workouts.flatMap((item) => item.exercises.map((entry) => ({ name: entry.exercise.name, category: entry.exercise.category, sets: entry.sets.length, completedAt: item.endedAt ?? item.startedAt })))} />
       {/* Workout feed */}
       <View style={styles.section}>
         <View style={styles.feedHeader}>

@@ -13,7 +13,7 @@ Mobile Trainings-App für iOS und Android mit Web-Ziel. Stand: 16. Oktober 2026.
 - Workout-Historie und gezielte Detailabfrage, Ergebnisansicht mit Gesamt-/Satz-XP, Levelbalken, geschätztem 1RM und Verbesserungen gegenüber früheren Trainings.
 - Freundschaftsanfragen, Freundesfeed und Profilbilder mit Initialen-Fallback. Vollständige Workout-Details sehen der Besitzer und bestätigte Freunde. Andere Profile verlinken die eigene Trainingsübersicht.
 - Globale Rangliste im Friends-Tab, eigener globaler Rang im Profil und XP-Ränge: Bronze ab 0, Silver ab 1.000, Gold ab 5.000, Platinum ab 15.000, Diamond ab 40.000 XP.
-- Eigenständig erstellte Muskelübersicht ohne fremde Grafikassets. Sie schätzt direkte/indirekte Belastung anhand von Übungsnamen und zeigt die letzten sieben Tage; unbekannte Übungen werden ausgelassen.
+- Anatomische Muskelkarte mit Vorder-/Rückansicht, männlicher/weiblicher Kontur und 7-Tage-/30-Tage-/Gesamtzeitraum. Die über OpenGym bereitgestellten MuscleMap-Konturen stehen unter MIT; vollständige Hinweise in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Vytors eigene Bewegungs-/Kategoriezuordnung trennt direkte und indirekte Belastung. Unbekannte Übungen werden ausdrücklich ausgewiesen.
 - Helles, dunkles und systemabhängiges Theme; Feedback, Passwortänderung und bestätigte Kontolöschung in Settings.
 
 ## Technik
@@ -144,3 +144,20 @@ npx eas-cli@latest submit --profile production --platform all
 Ein Development-Client-Profil setzt die zusätzliche Installation von `expo-dev-client` über `npx expo install expo-dev-client` voraus. OTA-Updates benötigen zunächst die Einrichtung von EAS Update. Fotos werden ausschließlich als bewusst ausgewähltes Profilbild übertragen; Kamera- und Mikrofonberechtigungen sind deaktiviert. Die abschließende Store-/Datenschutzprüfung ist vor Veröffentlichung durchzuführen.
 
 Expo-Dokumentation: [SDK 57](https://docs.expo.dev/versions/v57.0.0/), [Router](https://docs.expo.dev/router/introduction/), [EAS-Konfiguration](https://docs.expo.dev/build/eas-json/). `npm run reset-project` ist ein destruktives Starter-Skript und kein Wartungsbefehl.
+
+## Workout-Layout und Muskelkarte
+
+Header und Eingabezeilen nutzen dieselben Flex-Spalten in `WorkoutSetTable`. Einheiten besitzen einen reservierten Bereich innerhalb des Eingaberahmens. `SESSION` hat eine eigene Mindestbreite; alle Eingabezeilen und Bestätigungsbuttons sind 48 Punkte hoch. Die Karten nutzen auf Mobilgeräten die verfügbare Breite, auf großen Bildschirmen einen bis zu 1.100 Punkte breiten Inhaltsbereich. Der Footer steht außerhalb des Scrollbereichs; die Tab-Leiste wird während der Tastatureingabe ausgeblendet.
+
+`npm run test:ui` prüft Messarten, Session-Bezeichnungen, Platz auf 320-Punkte-Displays, anatomische Konturen, Muskelzuordnung und Farbskala. Die Server-Abhängigkeiten müssen dafür installiert sein.
+
+Für die reproduzierbare Browserprüfung (API-Antworten simuliert, keine Nutzerdaten):
+
+```bash
+npx expo export --platform web --output-dir /tmp/vytor-layout-export
+npm install --prefix /tmp/vytor-ui-verification @playwright/test
+PLAYWRIGHT_BROWSERS_PATH=/tmp/vytor-ui-browsers node /tmp/vytor-ui-verification/node_modules/playwright/cli.js install chromium
+PLAYWRIGHT_BROWSERS_PATH=/tmp/vytor-ui-browsers PLAYWRIGHT_MODULE=/tmp/vytor-ui-verification/node_modules/playwright/index.mjs node scripts/workout-layout.browser.mjs
+```
+
+Der Browserlauf prüft 320, 360, 390, 768 und 1.440 Pixel, ausgerichtete Spalten, Einheiten, Overflow, Eingaben, Satzaktionen, Entwurfsspeicherung, Abschluss/Verwerfen, Footer und Muskelkarte. Screenshots liegen unter `/tmp/vytor-layout-screenshots`. Native Tastatur-/Safe-Area-Prüfungen benötigen weiterhin reale iOS-/Android-Geräte. Der vorherige TODO-Audit hat außerdem noch offene Synchronisations- und Drop-Set-Randfälle festgestellt; diese Layoutänderung ändert keine Backend- oder Persistenzverträge.

@@ -2,7 +2,7 @@
 
 **Stand:** 16. Oktober 2026
 **Basis:** implementierter Repository-Stand und automatisierte Prüfungen gegen PostgreSQL.
-**Hinweis:** P1–P3 sind im Code umgesetzt. Automatisierte Prüfungen und Plattformexport ersetzen keine manuellen Gerätetests; verbleibende Abnahmen stehen unter P4 und in `docs/RELEASE_CHECKLIST.md`.
+**Hinweis:** Implementierung und vollständige Abnahme werden getrennt. Der TODO-Audit hat offene Randfälle in zuvor abgehakten Punkten festgestellt. Browserprüfungen ersetzen keine nativen Gerätetests; Details unter P4 und in `docs/RELEASE_CHECKLIST.md`.
 
 ## P0 – Technische Grundlagen (abgeschlossen)
 
@@ -15,11 +15,11 @@
 ## P1 – Kritische Fehler und Workout-Zuverlässigkeit
 
 - [x] **Aktive Übungen synchronisieren:** Hinzufügen, Entfernen, Ersetzen und Umordnen über Backend-Endpunkte.
-- [x] **Aktives Workout wiederherstellen/abbrechen (Grundlage):** Entwurf, Sätze und Timer lokal sichern, mit offenem Backend-Workout abgleichen; Abbrechen entfernt offenes Workout.
-- [x] **Satzvalidierung und Abschluss absichern:** Eingaben je Messart validieren; Sätze, Abschluss und XP-Vergabe transaktional speichern.
+- [ ] **Aktives Workout wiederherstellen/abbrechen (Grundlage):** Entwurf, Sätze und Timer lokal sichern, mit offenem Backend-Workout abgleichen; Abbrechen entfernt offenes Workout.
+- [ ] **Satzvalidierung und Abschluss absichern:** Eingaben je Messart validieren; Sätze, Abschluss und XP-Vergabe transaktional speichern.
 - [x] **Gespeicherte Workouts laden:** Fehler reproduzieren und beheben; API, Session, Lade-/Leer-/Fehlerzustände prüfen.
 - [x] **Recent Workouts öffnen:** Klickbare Einträge und Navigation zu Workout-Details reparieren; nur berechtigte Nutzer sehen vollständige Details. Für andere Profile die eigene zugängliche Trainingsübersicht darstellen, keine zufälligen fremden Workouts.
-- [x] **Aktives Workout kontoübergreifend synchronisieren:** Beim Login auf einem anderen Gerät ein bereits offenes Workout erkennen und fortsetzen; konkurrierende Starts verhindern bzw. kontrolliert behandeln. Lokale Wiederherstellung mit dem Serverzustand abgleichen.
+- [ ] **Aktives Workout kontoübergreifend synchronisieren:** Beim Login auf einem anderen Gerät ein bereits offenes Workout erkennen und fortsetzen; konkurrierende Starts verhindern bzw. kontrolliert behandeln. Lokale Wiederherstellung mit dem Serverzustand abgleichen.
 - [x] **Übung im Workout löschen:** Fehler beheben, bei dem Übungen auf dem Workout-Screen nicht entfernt werden können; Backend-Synchronisation und Wiederherstellung testen.
 - [x] **Workout-Aktionen dauerhaft sichtbar:** „Finish Workout“ und „End Workout“/Verwerfen am unteren Bildschirmrand erreichbar halten; Safe Areas, Scrollbereich und Tastatur berücksichtigen; Bestätigungen beibehalten.
 - [x] **„Start Workout“ am unteren Bildschirmrand:** Button in der Übungsauswahl fixieren und auf iOS, Android und Web korrekt darstellen.
@@ -35,7 +35,7 @@
 - [x] **Vorlagen-Optionen ergänzen:** Zahnrad-/Menüsymbol je Vorlage für Bearbeiten, Löschen und weitere Aktionen; globale/systemeigene Vorlagen schützen.
 - [x] **Workout-Presets klären und umsetzen:** Wiederverwendbare Trainingskonfigurationen speichern/laden; prüfen, ob dies durch vorhandene Vorlagen abgedeckt werden kann, statt Doppelstrukturen zu schaffen.
 - [x] **Zielwiederholungen je Satz:** Übungen/Vorlagen mit Ziel-Reps und optionalen „Ghost“-Orientierungswerten ausstatten; Anzeige und Persistenz definieren.
-- [x] **Satztypen und Drop-Sets:** Antippen eines Satzes öffnet Warm-Up, Regular, Drop-Set und Delete Set; Drop-Set unmittelbar unter dem Ursprungssatz hinzufügen, visuell verbinden, ursprünglichen Satz mit „D“ markieren und Drop-Set nicht als separaten regulären Satz zählen.
+- [ ] **Satztypen und Drop-Sets:** Antippen eines Satzes öffnet Warm-Up, Regular, Drop-Set und Delete Set; Drop-Set unmittelbar unter dem Ursprungssatz hinzufügen, visuell verbinden, ursprünglichen Satz mit „D“ markieren und Drop-Set nicht als separaten regulären Satz zählen.
 - [x] **Satzoptionen erweitern:** „Add another Set“ direkt unter dem ausgewählten Satz; zugehörigen Satz gezielt löschen können.
 - [x] **Pausentimer pro Übung:** Statische Vorgabe entfernen, freie Dauer wählen und pro Übung speichern; Timer beim Wiederherstellen korrekt fortsetzen.
 - [x] **„Rest after set“ anpassen:** Nicht als erste Option anzeigen; zusätzliche Aktion „Set Timer“ mit Eingabe `mm:ss` anbieten.
@@ -63,7 +63,7 @@
 - [x] **Profil personalisieren:** Profilbild, Anzeigename und eindeutiger `@username`; Upload, Bearbeitung, Validierung und Anzeige in eigenen/fremden Profilen.
 - [x] **Profilbild-Darstellung korrigieren:** Rahmen im Profil-Tab konsistent rund gestalten.
 - [x] **Muskelübersicht integrieren:** Muskelgrafik aus OpenGym nur bei zulässiger Lizenz übernehmen bzw. eigenständig erstellen; Vytor-Farbton nach Trainingsbelastung, nur indirekt beanspruchte Muskeln heller darstellen.
-- [x] **Helles Theme vervollständigen:** `LIGHT`/`DARK`/`SYSTEM` konsequent auf alle Screens, Modals und Komponenten anwenden.
+- [ ] **Helles Theme vervollständigen:** `LIGHT`/`DARK`/`SYSTEM` konsequent auf alle Screens, Modals und Komponenten anwenden.
 - [x] **Freestyle-Auswahl bereinigen:** Unerwünschten Rahmen um „FREESTYLE“ entfernen.
 - [x] **Übungssuche verbessern:** X-Schaltfläche zum Leeren des Suchfeldes.
 - [x] **Settings vereinfachen:** Doppelte/unnötige Einheitenauswahl nach Verlagerung entfernen; Zeitwahl für Standard-Pausentimer anbieten.
@@ -76,7 +76,7 @@
 - [x] **Integrationsprüfung mit echter Datenbank:** Sämtliche Migrationen, Seed, Login und private Endpunkte gegen PostgreSQL in einem isolierten Testschema geprüft (`npm run test:integration`).
 - [ ] **Plattformtests:** iOS, Android und Web für Registrierung/Login, Workouts, Vorlagen, Freunde, Profil, Ranking und Settings durchgehen.
 - [ ] **Workout-Regressionsfälle (Geräteabnahme):** API-/Logiktests für Gerätewechsel, Konflikte, parallele Starts, Übungsersatz/-löschung, Satztypen, Zeit und Abschluss bestehen. App-Neustart, Offline/Online-Wechsel und Timer müssen auf Endgeräten gemäß Testmatrix abgenommen werden.
-- [x] **Social-Regressionsfälle (API):** Anfragen, fremde Profilbilder, Sichtbarkeit und Berechtigungen gegen PostgreSQL geprüft; visuelle Geräteabnahme bleibt Teil der Plattformtests.
+- [ ] **Social-Regressionsfälle (API):** Anfragen, fremde Profilbilder, Sichtbarkeit und Berechtigungen gegen PostgreSQL geprüft; visuelle Geräteabnahme bleibt Teil der Plattformtests.
 - [ ] **UI-/Accessibility-Prüfung:** Kleine Displays, Safe Areas, Tastatur, Touch-Ziele, Hell-/Dunkelmodus und Screenreader.
 - [ ] **Release-Abnahme:** EAS-Preview-/Production-/Submit-Konfiguration und CI sind vorbereitet. Projekt-/Store-Zuordnung, Identifier, Signierung, reale Builds und endgültige Datenschutzangaben benötigen Betreiber-/Store-Daten.
 
@@ -94,6 +94,22 @@
 - Vorlagen sind die einzige Preset-Struktur; „Save as reusable preset“ übernimmt Ziele, Satztypen, Einheiten, Pausen und Cues.
 - Die globale Starter-Vorlage bleibt für historische Referenzen erhalten, wird aber aus der Auswahl ausgeblendet.
 - Offline-Vorbereitung umfasst kontoabhängige Entwürfe, Wiederherstellung, Wiederholungsversuche und explizite Konflikte. Neue Starts, strukturelle Übungsänderungen und Abschluss brauchen weiterhin eine Verbindung.
-- Die Muskelübersicht ist eine eigene, schematische Darstellung mit heuristischer Zuordnung anhand von Übungsnamen; keine OpenGym-Assets wurden übernommen.
+- Die Muskelkarte nutzt die in OpenGym separat als MIT ausgewiesenen MuscleMap-Konturen mit vollständiger Attribution. Darstellung und Bewegungs-/Kategoriezuordnung sind Vytor-eigen; keine OpenGym-AGPL-Anwendungslogik wurde übernommen.
 - Feedback wird serverseitig im internen Datenbankeingang gespeichert, mit Hinweis vor dem Senden; kein externer E-Mail-Dienst ist konfiguriert.
 - Die historische Messartenmigration wurde für saubere Neuinstallationen repariert. Bestehende Installationen werden durch eine neue additive Migration erweitert; kein Datenbank-Reset.
+
+## Workout-Layout – umgesetzt und separat geprüft
+
+- [x] Einheitliche Spalten für Header/Zeilen aller Messarten, integrierte Einheiten, 48-Punkte-Zeilen und einzeiliges SESSION.
+- [x] Mobile/Tablet/Desktop-Breite, Kartenabstände, lange Übungsnamen und Footer außerhalb des Scrollbereichs.
+- [x] Anatomische Vorder-/Rückansicht mit direkter/indirekter Kupferfärbung, Zeitraumfilter, Körperformauswahl und MIT-Lizenzhinweisen.
+- [x] Browserprüfung bei 320/360/390/768/1440 px mit simulierten APIs; fünf UI-/Geometrie-Tests.
+
+## Noch offene Befunde aus dem TODO-Audit
+
+- Workout-Sortierung besitzt keine Versionsprüfung; ein veraltetes Gerät kann die Reihenfolge überschreiben.
+- Entwürfe erlauben ungültige einzelne Satzobjekte, die eine Wiederherstellung verhindern können.
+- Beim Wechsel auf einen pausierten Entwurf müssen ungesendete Änderungen vor dem Laden gesichert werden.
+- Drop-Sets brauchen eine stabile Zuordnung zum Ursprung, auch beim Einfügen/Löschen benachbarter Sätze.
+- Einzelne Starter-Komponenten berücksichtigen die App-Theme-Präferenz noch nicht konsequent.
+- Social-Tests müssen Ablehnen, Zurückziehen und Entfernen eines Freundes zusätzlich abdecken.

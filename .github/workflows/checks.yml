@@ -34,6 +34,7 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npx tsc --noEmit -p server/tsconfig.json
+      - run: npm run test:ui
       - run: npm test
         working-directory: server
       - run: npm run test:integration
