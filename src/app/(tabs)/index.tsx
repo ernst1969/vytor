@@ -23,6 +23,11 @@ export default function HomeScreen() {
     isActive,
     exercises,
     addSet,
+    deleteSet,
+    setSetType,
+    addDropSet,
+    updateExerciseRest,
+    restSeconds,
     updateSet,
     completeSet,
     updateWeightUnit,
@@ -37,6 +42,7 @@ export default function HomeScreen() {
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
     null,
   );
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
 
   const scrollViewRef =
     useRef<KeyboardAwareScrollView | null>(null);
@@ -183,6 +189,12 @@ export default function HomeScreen() {
   if (isActive) {
     return (
       <View style={styles.container}>
+        <View style={styles.workoutToolbar}>
+          <Text style={styles.workoutToolbarTitle}>ACTIVE WORKOUT</Text>
+          <Pressable style={styles.quickAddButton} onPress={() => router.push("/exercise-picker")}>
+            <Text style={styles.quickAddText}>+ EXERCISE</Text>
+          </Pressable>
+        </View>
         <KeyboardAwareScrollView
           ref={scrollViewRef}
           contentContainerStyle={styles.workoutContent}
@@ -292,6 +304,24 @@ export default function HomeScreen() {
                       </Pressable>
                     )}
 
+                    <View style={styles.restOption}>
+                      <Text style={styles.optionText}>Rest after set</Text>
+                      <View style={styles.restControls}>
+                        {[30, 60, 90, 120].map((seconds) => (
+                          <Pressable
+                            key={seconds}
+                            style={[
+                              styles.restChoice,
+                              (exercise.restSeconds ?? restSeconds) === seconds && styles.restChoiceSelected,
+                            ]}
+                            onPress={() => updateExerciseRest(exercise.id, seconds)}
+                          >
+                            <Text style={styles.restChoiceText}>{seconds}s</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+
                     <Pressable
                       style={styles.optionButton}
                       onPress={() =>
@@ -361,22 +391,20 @@ export default function HomeScreen() {
                 )}
 
                 <View style={styles.columnHeader}>
-                  <Text style={styles.setHeader}>
-                    SET
-                  </Text>
-
-                  <Text style={styles.previousHeader}>
-                    LAST
-                  </Text>
-
-                  <Text style={styles.inputHeader}>
-                    WEIGHT
-                  </Text>
-
-                  <Text style={styles.inputHeader}>
-                    REPS
-                  </Text>
-
+                  <Text style={styles.setHeader}>SET</Text>
+                  <Text style={styles.previousHeader}>LAST</Text>
+                  {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && (
+                    <Text style={styles.inputHeader}>WEIGHT</Text>
+                  )}
+                  {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && (
+                    <Text style={styles.inputHeader}>REPS</Text>
+                  )}
+                  {(exercise.measurementType === "DISTANCE_TIME" || exercise.measurementType === "WEIGHT_DISTANCE") && (
+                    <Text style={styles.inputHeader}>DISTANCE</Text>
+                  )}
+                  {(exercise.measurementType === "TIME" || exercise.measurementType === "DISTANCE_TIME") && (
+                    <Text style={styles.inputHeader}>SECONDS</Text>
+                  )}
                   <View style={styles.actionHeader} />
                 </View>
 
@@ -388,37 +416,26 @@ export default function HomeScreen() {
                         set.setNumber,
                     );
 
-                  const hasPrevious =
-                    previousSet !== undefined &&
-                    (previousSet.weight !== null ||
-                      previousSet.reps !== null);
-
-                  const previousText = hasPrevious
-                    ? `${previousSet?.weight ?? "—"}×${
-                        previousSet?.reps ?? "—"
-                      }`
-                    : "—";
+                  const previousValues = previousSet
+                    ? [previousSet.weight, previousSet.reps, previousSet.distance, previousSet.durationSeconds]
+                        .filter((value) => value !== null)
+                    : [];
+                  const previousText = previousValues.length ? previousValues.join("/") : "—";
 
                   return (
-                    <View
-                      key={set.id}
-                      style={styles.setRow}
-                      onLayout={(event) =>
-                        handleSetLayout(
-                          set.id,
-                          event.nativeEvent.layout.y,
-                        )
-                      }
-                    >
-                      <Text style={styles.setNumber}>
-                        {set.setNumber}
-                      </Text>
+                    <View key={set.id}>
+                    <View style={styles.setRow} onLayout={(event) => handleSetLayout(set.id, event.nativeEvent.layout.y)}>
+                      <Pressable style={styles.setNumberButton} onPress={() => setSelectedSetId(selectedSetId === set.id ? null : set.id)}>
+                        <Text style={[styles.setNumber, set.setType !== "REGULAR" && styles.specialSetNumber]}>
+                          {set.setType === "WARMUP" ? "W" : set.setType === "DROP" ? "D" : set.setNumber}
+                        </Text>
+                      </Pressable>
 
                       <Text style={styles.previousValue}>
                         {previousText}
                       </Text>
 
-                      <TextInput
+                      {(exercise.measurementType === "WEIGHT_REPS" || exercise.measurementType === "WEIGHT_DISTANCE") && <TextInput
                         style={styles.input}
                         value={set.weight}
                         onFocus={() =>
@@ -440,9 +457,9 @@ export default function HomeScreen() {
                         placeholderTextColor={
                           Colors.textMuted
                         }
-                      />
+                      />}
 
-                      <TextInput
+                      {(exercise.measurementType === "REPS" || exercise.measurementType === "WEIGHT_REPS") && <TextInput
                         style={styles.input}
                         value={set.reps}
                         onFocus={() =>
@@ -464,7 +481,27 @@ export default function HomeScreen() {
                         placeholderTextColor={
                           Colors.textMuted
                         }
-                      />
+                      />}
+
+                      {(exercise.measurementType === "DISTANCE_TIME" || exercise.measurementType === "WEIGHT_DISTANCE") && <TextInput
+                        style={styles.input}
+                        value={set.distance}
+                        onFocus={() => scrollToSet(exercise.id, set.id)}
+                        onChangeText={(value) => updateSet(exercise.id, set.id, "distance", value)}
+                        keyboardType="decimal-pad"
+                        placeholder={exercise.distanceUnit.toLowerCase()}
+                        placeholderTextColor={Colors.textMuted}
+                      />}
+
+                      {(exercise.measurementType === "TIME" || exercise.measurementType === "DISTANCE_TIME") && <TextInput
+                        style={styles.input}
+                        value={set.durationSeconds}
+                        onFocus={() => scrollToSet(exercise.id, set.id)}
+                        onChangeText={(value) => updateSet(exercise.id, set.id, "durationSeconds", value)}
+                        keyboardType="number-pad"
+                        placeholder="sec"
+                        placeholderTextColor={Colors.textMuted}
+                      />}
 
                       <Pressable
                         style={[
@@ -489,6 +526,15 @@ export default function HomeScreen() {
                           ✓
                         </Text>
                       </Pressable>
+                    </View>
+                    {selectedSetId === set.id && (
+                      <View style={styles.setOptions}>
+                        <Pressable style={styles.setOption} onPress={() => setSetType(exercise.id, set.id, "WARMUP")}><Text style={styles.setOptionText}>Warm-up</Text></Pressable>
+                        <Pressable style={styles.setOption} onPress={() => setSetType(exercise.id, set.id, "REGULAR")}><Text style={styles.setOptionText}>Regular</Text></Pressable>
+                        <Pressable style={styles.setOption} onPress={() => { addDropSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.setOptionText}>+ Drop set</Text></Pressable>
+                        <Pressable style={styles.setOption} onPress={() => { deleteSet(exercise.id, set.id); setSelectedSetId(null); }}><Text style={styles.deleteText}>Delete set</Text></Pressable>
+                      </View>
+                    )}
                     </View>
                   );
                 })}
@@ -612,6 +658,21 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
 
+  workoutToolbar: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+
+  workoutToolbarTitle: { color: Colors.textMuted, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
+  quickAddButton: { minHeight: 40, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  quickAddText: { color: Colors.accent, fontSize: 12, fontWeight: "900" },
+
   exerciseCard: {
     marginBottom: 14,
     padding: 12,
@@ -719,6 +780,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
+  restOption: { paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  restControls: { marginTop: 8, flexDirection: "row", gap: 6 },
+  restChoice: { flex: 1, minHeight: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, borderRadius: 5 },
+  restChoiceSelected: { borderColor: Colors.accent, backgroundColor: Colors.surface },
+  restChoiceText: { color: Colors.text, fontSize: 11, fontWeight: "800" },
+
   disabledOption: {
     opacity: 0.3,
   },
@@ -787,6 +854,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
   },
+
+  setNumberButton: { width: 28, minHeight: 42, alignItems: "center", justifyContent: "center" },
+  specialSetNumber: { color: Colors.accent },
+  setOptions: { marginLeft: 28, marginBottom: 8, flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  setOption: { minHeight: 34, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, borderRadius: 5 },
+  setOptionText: { color: Colors.text, fontSize: 11, fontWeight: "700" },
 
   previousValue: {
     width: 62,

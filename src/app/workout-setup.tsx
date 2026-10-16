@@ -76,6 +76,7 @@ export default function WorkoutSetupScreen() {
               distance: "",
               durationSeconds: "",
               completed: false,
+              setType: "REGULAR",
             },
           ],
         }));

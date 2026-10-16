@@ -98,6 +98,7 @@ export default function ExercisePickerScreen() {
           distance: "",
           durationSeconds: "",
           completed: false,
+          setType: "REGULAR",
         },
       ],
     };

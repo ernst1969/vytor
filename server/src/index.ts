@@ -20,7 +20,7 @@ const prisma = new PrismaClient({
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "3mb" }));
 
 // --------------------------------------------------
 // Types
@@ -420,6 +420,8 @@ app.get(
           select: {
             id: true,
             username: true,
+            displayName: true,
+            avatarData: true,
           },
         });
 
@@ -459,6 +461,8 @@ app.get(
           select: {
             id: true,
             username: true,
+            displayName: true,
+            avatarData: true,
             createdAt: true,
           },
         });
@@ -551,6 +555,8 @@ app.get(
       res.json({
         id: user.id,
         username: user.username,
+        displayName: user.displayName,
+        avatarData: user.avatarData,
         ...progress,
       });
     } catch (error) {
@@ -565,6 +571,48 @@ app.get(
     }
   },
 );
+
+app.patch("/api/users/:id/profile", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id !== authUserId(req)) {
+      return res.status(403).json({ error: "You cannot edit this profile" });
+    }
+
+    const username = typeof req.body.username === "string" ? req.body.username.trim() : "";
+    const displayName = typeof req.body.displayName === "string" ? req.body.displayName.trim() : "";
+    const avatarData = req.body.avatarData === null || typeof req.body.avatarData === "string"
+      ? req.body.avatarData
+      : undefined;
+
+    if (!/^[a-zA-Z0-9_]{2,24}$/.test(username)) {
+      return res.status(400).json({ error: "Username must be 2–24 letters, numbers, or underscores" });
+    }
+    if (displayName.length > 50) {
+      return res.status(400).json({ error: "Display name is too long" });
+    }
+    if (typeof avatarData === "string" && (!avatarData.startsWith("data:image/") || avatarData.length > 2_500_000)) {
+      return res.status(400).json({ error: "Profile image is invalid or too large" });
+    }
+
+    const duplicate = await prisma.user.findFirst({ where: { username, id: { not: id } } });
+    if (duplicate) return res.status(409).json({ error: "Username already exists" });
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        username,
+        displayName: displayName || null,
+        ...(avatarData !== undefined ? { avatarData } : {}),
+      },
+      select: { id: true, username: true, displayName: true, avatarData: true },
+    });
+    res.json(user);
+  } catch (error) {
+    console.error("Failed to update profile:", error);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+});
 
 // --------------------------------------------------
 // Friends
@@ -1559,9 +1607,16 @@ app.patch(
             ? "KM"
             : undefined;
 
+      const restSeconds = Number(req.body.restSeconds);
+      const hasRestSeconds = req.body.restSeconds !== undefined;
+      if (hasRestSeconds && (!Number.isInteger(restSeconds) || restSeconds < 0 || restSeconds > 600)) {
+        return res.status(400).json({ error: "Rest duration must be between 0 and 600 seconds" });
+      }
+
       if (
         weightUnit === undefined &&
-        distanceUnit === undefined
+        distanceUnit === undefined &&
+        !hasRestSeconds
       ) {
         return res.status(400).json({
           error:
@@ -1587,6 +1642,7 @@ app.patch(
                   distanceUnit,
                 }
               : {}),
+            ...(hasRestSeconds ? { restSeconds } : {}),
           },
         });
 
@@ -1665,6 +1721,7 @@ app.post(
         distance: number | null;
         reps: number | null;
         durationSeconds: number | null;
+        setType: "WARMUP" | "REGULAR" | "DROP";
       }[] = [];
 
       for (const exercise of exercises) {
@@ -1896,6 +1953,7 @@ app.post(
             distance,
             reps,
             durationSeconds,
+            setType: ["WARMUP", "DROP"].includes(set.setType) ? set.setType : "REGULAR",
           });
         }
       }

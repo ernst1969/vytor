@@ -21,6 +21,7 @@ import {
   type DistanceUnit,
   type ExerciseMeasurementType,
   type WeightUnit,
+  type WorkoutSetType,
 } from "@/services/api";
 
 export type WorkoutSet = {
@@ -31,6 +32,7 @@ export type WorkoutSet = {
   distance: string;
   durationSeconds: string;
   completed: boolean;
+  setType: WorkoutSetType;
 };
 
 export type PreviousWorkoutSet = {
@@ -49,6 +51,7 @@ export type WorkoutExercise = {
   measurementType: ExerciseMeasurementType;
   weightUnit: WeightUnit;
   distanceUnit: DistanceUnit;
+  restSeconds?: number;
   sets: WorkoutSet[];
   workoutExerciseId?: number;
   previousSets?: PreviousWorkoutSet[];
@@ -83,6 +86,10 @@ type WorkoutContextValue = {
   cancelActiveWorkout: () => Promise<void>;
 
   addSet: (exerciseId: string) => void;
+  deleteSet: (exerciseId: string, setId: string) => void;
+  setSetType: (exerciseId: string, setId: string, type: WorkoutSetType) => void;
+  addDropSet: (exerciseId: string, setId: string) => void;
+  updateExerciseRest: (exerciseId: string, seconds: number) => void;
 
   completeSet: (
     exerciseId: string,
@@ -245,6 +252,7 @@ function normalizeExercise(
         set.durationSeconds ?? "",
       completed:
         set.completed ?? false,
+      setType: set.setType ?? "REGULAR",
     })),
   };
 }
@@ -336,20 +344,28 @@ export function WorkoutProvider({
           setPreferredDistanceUnit(settings.preferredDistanceUnit);
         }
 
-        if (snapshot) {
-          const data = JSON.parse(snapshot) as {
-            startedAt: number;
-            workoutId: number;
-            exercises: WorkoutExercise[];
-            restEndsAt: number | null;
-          };
-          if (activeWorkout?.id === data.workoutId) {
-            setStartedAt(data.startedAt);
-            setWorkoutId(data.workoutId);
-            setExercises(data.exercises.map(normalizeExercise));
-            setRestEndsAt(data.restEndsAt);
+        let restoredSnapshot = false;
+        if (snapshot && activeWorkout) {
+          try {
+            const data = JSON.parse(snapshot) as {
+              startedAt: number;
+              workoutId: number;
+              exercises: WorkoutExercise[];
+              restEndsAt: number | null;
+            };
+            if (activeWorkout.id === data.workoutId && Array.isArray(data.exercises)) {
+              setStartedAt(data.startedAt);
+              setWorkoutId(data.workoutId);
+              setExercises(data.exercises.map(normalizeExercise));
+              setRestEndsAt(data.restEndsAt);
+              restoredSnapshot = true;
+            }
+          } catch {
+            await AsyncStorage.removeItem("vytor_active_workout");
           }
-        } else if (activeWorkout) {
+        }
+
+        if (!restoredSnapshot && activeWorkout) {
           setStartedAt(new Date(activeWorkout.startedAt).getTime());
           setWorkoutId(activeWorkout.id);
           setExercises(
@@ -357,6 +373,7 @@ export function WorkoutProvider({
               id: number;
               weightUnit: WeightUnit;
               distanceUnit: DistanceUnit;
+              restSeconds: number | null;
               exercise: { id: number; name: string; description: string | null; measurementType: ExerciseMeasurementType };
             }) => normalizeExercise({
               id: `exercise-${item.id}`,
@@ -367,7 +384,8 @@ export function WorkoutProvider({
               measurementType: item.exercise.measurementType,
               weightUnit: item.weightUnit,
               distanceUnit: item.distanceUnit,
-              sets: [{ id: `set-${item.id}-1`, setNumber: 1, weight: "", reps: "", distance: "", durationSeconds: "", completed: false }],
+              restSeconds: item.restSeconds ?? undefined,
+              sets: [{ id: `set-${item.id}-1`, setNumber: 1, weight: "", reps: "", distance: "", durationSeconds: "", completed: false, setType: "REGULAR" }],
             })),
           );
         }
@@ -564,6 +582,7 @@ export function WorkoutProvider({
                     values.distance,
                   durationSeconds:
                     values.durationSeconds,
+                  setType: set.setType,
                 };
               }),
           }))
@@ -627,12 +646,62 @@ export function WorkoutProvider({
                   distance: "",
                   durationSeconds: "",
                   completed: false,
+                  setType: "REGULAR",
                 },
               ],
             };
           },
         ),
     );
+  }
+
+  function deleteSet(exerciseId: string, setId: string) {
+    setExercises((current) => current.map((exercise) => {
+      if (exercise.id !== exerciseId) return exercise;
+      return {
+        ...exercise,
+        sets: exercise.sets
+          .filter((set) => set.id !== setId)
+          .map((set, index) => ({ ...set, setNumber: index + 1 })),
+      };
+    }));
+  }
+
+  function setSetType(exerciseId: string, setId: string, type: WorkoutSetType) {
+    setExercises((current) => current.map((exercise) =>
+      exercise.id === exerciseId
+        ? { ...exercise, sets: exercise.sets.map((set) => set.id === setId ? { ...set, setType: type } : set) }
+        : exercise,
+    ));
+  }
+
+  function addDropSet(exerciseId: string, setId: string) {
+    setExercises((current) => current.map((exercise) => {
+      if (exercise.id !== exerciseId) return exercise;
+      const index = exercise.sets.findIndex((set) => set.id === setId);
+      const source = exercise.sets[index];
+      if (index < 0 || !source) return exercise;
+      const next = [...exercise.sets];
+      next.splice(index + 1, 0, {
+        ...source,
+        id: `${exercise.id}-drop-${Date.now()}`,
+        completed: false,
+        setType: "DROP",
+      });
+      return { ...exercise, sets: next.map((set, setIndex) => ({ ...set, setNumber: setIndex + 1 })) };
+    }));
+  }
+
+  function updateExerciseRest(exerciseId: string, seconds: number) {
+    const normalized = Math.max(0, Math.min(600, Math.round(seconds)));
+    const exercise = exercises.find((item) => item.id === exerciseId);
+    setExercises((current) => current.map((item) =>
+      item.id === exerciseId ? { ...item, restSeconds: normalized } : item,
+    ));
+    if (exercise?.workoutExerciseId) {
+      void updateWorkoutExerciseSettings(exercise.workoutExerciseId, { restSeconds: normalized })
+        .catch((error) => console.error("Failed to save rest duration:", error));
+    }
   }
 
   function completeSet(
@@ -684,7 +753,7 @@ export function WorkoutProvider({
                   setRestEndsAt(
                     completed
                       ? Date.now() +
-                          restSeconds * 1000
+                          (exercise.restSeconds ?? restSeconds) * 1000
                       : null,
                   );
 
@@ -1137,6 +1206,10 @@ export function WorkoutProvider({
         finishWorkout,
         cancelActiveWorkout,
         addSet,
+        deleteSet,
+        setSetType,
+        addDropSet,
+        updateExerciseRest,
         completeSet,
         updateSet,
         updateWeightUnit,

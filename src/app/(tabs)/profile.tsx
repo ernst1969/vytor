@@ -1,8 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
-import { getLeaderboard, getUser, getWorkoutHistory } from "@/services/api";
+import { getUser, getWorkoutHistory } from "@/services/api";
 
 type WorkoutSet = {
   id: number;
@@ -47,14 +48,14 @@ type Workout = {
 type User = {
   id: number;
   username: string;
+  displayName: string | null;
+  avatarData: string | null;
   xp: number;
   level: number;
   rank: number;
   levelStartXp: number;
   nextLevelXp: number;
 };
-
-type LeaderboardEntry = { id: number; username: string; xp: number; level: number; rank: number };
 
 function formatDate(dateString: string) {
   const date = new Date(dateString);
@@ -147,7 +148,6 @@ export default function ProfileScreen() {
 
   const [user, setUser] = useState<User | null>(null);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,10 +165,9 @@ export default function ProfileScreen() {
         throw new Error("No valid logged-in user found.");
       }
 
-      const [userData, workoutData, leaderboardData] = await Promise.all([
+      const [userData, workoutData] = await Promise.all([
         getUser(userId),
         getWorkoutHistory(userId),
-        getLeaderboard(),
       ]);
 
       setUser(userData);
@@ -178,7 +177,6 @@ export default function ProfileScreen() {
           ? workoutData
           : [],
       );
-      setLeaderboard(Array.isArray(leaderboardData) ? leaderboardData.slice(0, 5) : []);
     } catch (err) {
       console.error(
         "Failed to load profile:",
@@ -196,9 +194,7 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    void Promise.resolve().then(() => loadProfile());
-  }, [loadProfile]);
+  useFocusEffect(useCallback(() => { void loadProfile(); }, [loadProfile]));
 
   function handleRefresh() {
     setRefreshing(true);
@@ -271,14 +267,20 @@ export default function ProfileScreen() {
       {/* Profile header */}
       <View style={styles.profileHeader}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {user.username.charAt(0).toUpperCase()}
-          </Text>
+          {user.avatarData ? (
+            <Image source={{ uri: user.avatarData }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{(user.displayName || user.username).charAt(0).toUpperCase()}</Text>
+          )}
         </View>
 
         <Text style={styles.username}>
-          {user.username}
+          {user.displayName || user.username}
         </Text>
+        <Text style={styles.handle}>@{user.username}</Text>
+        <Pressable style={styles.editProfileButton} onPress={() => router.push("/edit-profile")}>
+          <Text style={styles.editProfileText}>EDIT PROFILE</Text>
+        </Pressable>
       </View>
 
       {/* Level / Rank */}
@@ -301,19 +303,6 @@ export default function ProfileScreen() {
       <Text style={styles.xpText}>
         {user.xp - user.levelStartXp} / {user.nextLevelXp - user.levelStartXp} XP to next level
       </Text>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>GLOBAL RANKING</Text>
-        <View style={styles.leaderboardCard}>
-          {leaderboard.map((entry) => (
-            <View key={entry.id} style={styles.leaderboardRow}>
-              <Text style={styles.leaderboardRank}>#{entry.rank}</Text>
-              <Text style={styles.leaderboardName}>{entry.username}</Text>
-              <Text style={styles.leaderboardXp}>{entry.xp} XP</Text>
-            </View>
-          ))}
-        </View>
-      </View>
 
       {/* Recent workouts */}
       <View style={styles.section}>
@@ -529,11 +518,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  avatarImage: { width: "100%", height: "100%" },
+
   username: {
     color: Colors.text,
     fontSize: 26,
     fontWeight: "700",
   },
+
+  handle: { marginTop: 4, color: Colors.textMuted, fontSize: 14 },
+  editProfileButton: { marginTop: 14, minHeight: 38, paddingHorizontal: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, borderRadius: 7 },
+  editProfileText: { color: Colors.text, fontSize: 11, fontWeight: "900", letterSpacing: 0.7 },
 
   statsRow: {
     flexDirection: "row",

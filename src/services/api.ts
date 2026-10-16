@@ -32,6 +32,7 @@ export type ExerciseMeasurementType =
 export type WeightUnit = "KG" | "LBS";
 
 export type DistanceUnit = "KM" | "MI";
+export type WorkoutSetType = "WARMUP" | "REGULAR" | "DROP";
 
 export type Exercise = {
   id: number;
@@ -143,6 +144,20 @@ export async function getUser(userId: number) {
   return data;
 }
 
+export async function updateProfile(
+  userId: number,
+  profile: { username: string; displayName: string; avatarData?: string | null },
+) {
+  const response = await fetch(`${API_URL}/api/users/${userId}/profile`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  return data;
+}
+
 export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
   const response = await fetch(`${API_URL}/api/templates`);
 
@@ -248,6 +263,7 @@ export async function finishWorkout(
       reps?: number | null;
       distance?: number | null;
       durationSeconds?: number | null;
+      setType?: WorkoutSetType;
     }[];
   }[],
 ) {
@@ -535,6 +551,7 @@ export async function updateWorkoutExerciseSettings(
   settings: {
     weightUnit?: WeightUnit;
     distanceUnit?: DistanceUnit;
+    restSeconds?: number;
   },
 ) {
   const response = await fetch(

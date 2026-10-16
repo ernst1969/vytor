@@ -18,6 +18,9 @@ type WorkoutSet = {
   setNumber: number;
   weight: number | null;
   reps: number | null;
+  distance: number | null;
+  durationSeconds: number | null;
+  setType?: "WARMUP" | "REGULAR" | "DROP";
 };
 
 type WorkoutExercise = {
@@ -98,7 +101,7 @@ export default function WorkoutDetailScreen() {
     async function loadWorkout() {
       try {
         const storedUserId =
-          await AsyncStorage.getItem("userId");
+          await AsyncStorage.getItem("vytor_user_id");
 
         const userId = Number(storedUserId);
         const id = Number(workoutId);
@@ -279,13 +282,7 @@ export default function WorkoutDetailScreen() {
                       SET
                     </Text>
 
-                    <Text style={styles.setHeaderText}>
-                      WEIGHT
-                    </Text>
-
-                    <Text style={styles.setHeaderText}>
-                      REPS
-                    </Text>
+                    <Text style={styles.setHeaderText}>DETAILS</Text>
                   </View>
 
                   {exercise.sets.map((set) => (
@@ -298,15 +295,13 @@ export default function WorkoutDetailScreen() {
                       </Text>
 
                       <Text style={styles.setValue}>
-                        {set.weight !== null
-                          ? `${set.weight} kg`
-                          : "—"}
-                      </Text>
-
-                      <Text style={styles.setValue}>
-                        {set.reps !== null
-                          ? set.reps
-                          : "—"}
+                        {[
+                          set.weight !== null ? `${set.weight} kg` : null,
+                          set.reps !== null ? `${set.reps} reps` : null,
+                          set.distance !== null ? `${set.distance} km` : null,
+                          set.durationSeconds !== null ? `${set.durationSeconds}s` : null,
+                        ].filter(Boolean).join(" · ") || "—"}
+                        {set.setType && set.setType !== "REGULAR" ? ` (${set.setType.toLowerCase()})` : ""}
                       </Text>
                     </View>
                   ))}
