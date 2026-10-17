@@ -1,6 +1,15 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+if (!__DEV__) {
+  let valid = false;
+  try {
+    const url = new URL(configuredApiUrl || "");
+    valid = url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password && !url.search && !url.hash;
+  } catch { /* Report missing and malformed release configuration consistently. */ }
+  if (!valid) throw new Error("EXPO_PUBLIC_API_URL must be an explicit HTTPS API URL without credentials, query or fragment for release builds.");
+}
+const API_URL = (configuredApiUrl || "http://localhost:3000").replace(/\/+$/, "");
 const SESSION_TOKEN_KEY = "vytor_session_token";
 const sessionListeners = new Set<() => void>();
 export function onSessionChange(listener: () => void) { sessionListeners.add(listener); return () => { sessionListeners.delete(listener); }; }

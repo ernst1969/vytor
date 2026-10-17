@@ -179,3 +179,11 @@ Der Browserlauf prüft 320, 344 (Referenzbreite), 360, 390, 768 und 1.440 Pixel,
 Die Settings öffnen Eingaben über einzelne Buttons; der Standard-Pausentimer wird in getrennten Minuten-/Sekundenfeldern eingestellt.
 
 Die Streak wird ausschließlich aus der vorhandenen Workout-Historie berechnet. Home lädt sie beim Öffnen bzw. nach dem Abschluss erneut. Ein einzelner Timeout bis zur nächsten lokalen Mitternacht und die Rückkehr aus dem Hintergrund aktualisieren die Tagesanzeige; beim Verlassen des Screens wird der Timeout entfernt. Es gibt keine separate Streak-Persistenz, Rewards oder zusätzlichen Hintergrundabfragen.
+
+## Späteres Hetzner-Hosting
+
+Die ausschließlich vorbereitete Docker-/HTTPS-/Backup-Konfiguration und alle manuellen
+Umzugsschritte stehen in [docs/HETZNER_DEPLOYMENT.md](docs/HETZNER_DEPLOYMENT.md).
+Vor Internetfreigabe die offenen Befunde in
+[docs/HETZNER_SECURITY_REVIEW.md](docs/HETZNER_SECURITY_REVIEW.md) bearbeiten.
+Der lokale Entwicklungsworkflow verwendet weiterhin die bestehenden `.env`-Dateien.

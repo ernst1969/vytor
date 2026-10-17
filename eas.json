@@ -13,6 +13,20 @@
     "production": {
       "autoIncrement": true,
       "environment": "production"
+    },
+    "development": {
+      "distribution": "internal",
+      "environment": "development",
+      "android": {
+        "gradleCommand": ":app:assembleDebug"
+      }
+    },
+    "production-apk": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

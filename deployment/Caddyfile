@@ -1,0 +1,20 @@
+{
+    email {$ACME_EMAIL}
+}
+{$API_DOMAIN} {
+    request_body {
+        max_size 3MB
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+    reverse_proxy api:3000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up -Forwarded
+    }
+    # No access logs: URLs can contain user search terms.
+}

@@ -6,11 +6,22 @@ import { createHash, randomBytes } from "node:crypto";
 import "dotenv/config";
 import express, { type NextFunction, type Request, type Response } from "express";
 
+import { authLimits, accountPasswordLimits, proxyTrust, requestIdentity, logError, tooMany } from "./security.js";
+import { workoutValidation, boundedTree, object, WORKOUT_LIMITS, validSets } from "./workout-validation.js";
+
 import { validTemplateConfiguration } from "./validation.js";
 import { levelForXp, progressForXp, workoutXp, rankTier } from "./progression.js";
 
+class WorkoutConflictError extends Error {}
+class WorkoutFrequencyError extends Error { constructor(public readonly retryAfter: number) { super("Workout frequency limit"); } }
+
+const loginTimingHash = bcrypt.hashSync("vytor-nonexistent-account-timing", 12);
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
+
+if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is required in production");
+}
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
@@ -20,10 +31,21 @@ const prisma = new PrismaClient({
   adapter,
 });
 
-app.use(cors());
+// Native mobile clients do not require browser CORS access.
+app.use(cors(process.env.NODE_ENV === "production" ? { origin: false } : undefined));
+app.disable("x-powered-by");
+if (process.env.NODE_ENV === "production" && !process.env.TRUSTED_PROXY_IP) throw new Error("TRUSTED_PROXY_IP must identify the Caddy container in production");
+app.set("trust proxy", proxyTrust(process.env.TRUSTED_PROXY_IP));
+app.use(requestIdentity);
 app.use(express.json({ limit: "3mb" }));
+app.use((req, res, next) => {
+  if (req.body !== undefined && (!object(req.body) || !boundedTree(req.body, 3_000_000))) return res.status(400).json({ error: "Invalid request body", code: "INVALID_INPUT" });
+  req.body ??= {};
+  next();
+});
+app.use(authLimits());
 for (const parameter of ["id", "userId", "exerciseId", "friendId"]) app.param(parameter, (_req, res, next, value) => {
-  if (!Number.isSafeInteger(Number(value)) || Number(value) < 1) return res.status(400).json({ error: `Invalid ${parameter}` });
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1 || Number(value) > 2_147_483_647) return res.status(400).json({ error: `Invalid ${parameter}` });
   next();
 });
 
@@ -114,7 +136,7 @@ async function requireAuth(
     ? authorization.slice(7)
     : null;
 
-  if (!token) {
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
@@ -176,7 +198,7 @@ app.post("/api/users", async (req, res) => {
       });
     }
 
-    if (!password || typeof password !== "string") {
+    if (!password || typeof password !== "string" || Buffer.byteLength(password) > 72) {
       return res.status(400).json({
         error: "Password is required",
       });
@@ -203,7 +225,7 @@ app.post("/api/users", async (req, res) => {
 
     if (existingUser) {
       return res.status(409).json({
-        error: "Username already exists",
+        error: "Registration could not be completed",
       });
     }
 
@@ -225,7 +247,8 @@ app.post("/api/users", async (req, res) => {
       token,
     });
   } catch (error) {
-    console.error(
+    if ((error as { code?: string }).code === "P2002") return res.status(409).json({ error: "Registration could not be completed", code: "CONFLICT" });
+    logError(
       "Failed to create user:",
       error,
     );
@@ -246,35 +269,23 @@ app.post("/api/login", async (req, res) => {
       });
     }
 
-    if (!password || typeof password !== "string") {
+    if (!password || typeof password !== "string" || Buffer.byteLength(password) > 72) {
       return res.status(400).json({
         error: "Password is required",
       });
     }
 
     const trimmedUsername = username.trim();
+    if (!/^[a-zA-Z0-9_]{2,24}$/.test(trimmedUsername)) return res.status(401).json({ error: "Invalid username or password" });
 
     const user =
       await prisma.user.findFirst({
         where: { username: { equals: trimmedUsername, mode: "insensitive" } },
       });
 
-    if (!user || !user.passwordHash) {
-      return res.status(401).json({
-        error: "Invalid username or password",
-      });
-    }
-
-    const passwordMatches =
-      await bcrypt.compare(
-        password,
-        user.passwordHash,
-      );
-
-    if (!passwordMatches) {
-      return res.status(401).json({
-        error: "Invalid username or password",
-      });
+    const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? loginTimingHash);
+    if (!user || !user.passwordHash || !passwordMatches) {
+      return res.status(401).json({ error: "Invalid username or password" });
     }
 
     const token = await createSession(user.id);
@@ -285,7 +296,7 @@ app.post("/api/login", async (req, res) => {
       token,
     });
   } catch (error) {
-    console.error(
+    logError(
       "Failed to log in:",
       error,
     );
@@ -296,7 +307,18 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+app.get("/api/ready", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: "ok" });
+  } catch {
+    res.status(503).json({ status: "unavailable" });
+  }
+});
+
 app.use("/api", requireAuth);
+app.use("/api", accountPasswordLimits());
+app.use("/api", workoutValidation);
 
 app.post("/api/logout", async (req: AuthenticatedRequest, res) => {
   const authorization = req.header("authorization");
@@ -429,7 +451,7 @@ app.get(
 
       res.json(users);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to search users:",
         error,
       );
@@ -508,7 +530,7 @@ app.get(
           : null,
       });
     } catch (error) {
-      console.error(
+      logError(
         "Failed to load public user:",
         error,
       );
@@ -562,7 +584,7 @@ app.get(
         ...progress,
       });
     } catch (error) {
-      console.error(
+      logError(
         "Failed to get user:",
         error,
       );
@@ -611,7 +633,7 @@ app.patch("/api/users/:id/profile", async (req, res) => {
     });
     res.json(user);
   } catch (error) {
-    console.error("Failed to update profile:", error);
+    logError("Failed to update profile:", error);
     res.status(500).json({ error: "Failed to update profile" });
   }
 });
@@ -681,7 +703,7 @@ app.get(
 
       res.json(friends);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to load friends:",
         error,
       );
@@ -741,7 +763,7 @@ app.get(
         })),
       );
     } catch (error) {
-      console.error(
+      logError(
         "Failed to load friend requests:",
         error,
       );
@@ -849,7 +871,7 @@ app.post(
 
       res.json(updated);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to accept friend request:",
         error,
       );
@@ -925,7 +947,7 @@ app.post(
         success: true,
       });
     } catch (error) {
-      console.error(
+      logError(
         "Failed to reject friend request:",
         error,
       );
@@ -1051,7 +1073,7 @@ app.get(
 
       res.json(workouts);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to load friends feed:",
         error,
       );
@@ -1106,7 +1128,7 @@ app.get(
 
       res.json(exercises);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to get exercises:",
         error,
       );
@@ -1149,7 +1171,7 @@ app.get(
 
       res.json(templates);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to get workout templates:",
         error,
       );
@@ -1171,12 +1193,13 @@ app.post("/api/templates", async (req, res) => {
       return res.status(400).json({ error: "Template name is required" });
     }
 
-    if (!Array.isArray(exerciseIds) || exerciseIds.length === 0) {
+    if (!Array.isArray(exerciseIds) || exerciseIds.length === 0 || exerciseIds.length > WORKOUT_LIMITS.exercises) {
       return res.status(400).json({ error: "Select at least one exercise" });
     }
 
-    const uniqueIds = [...new Set(exerciseIds.map(Number))];
-    if (uniqueIds.some((id) => !Number.isInteger(id))) {
+    if (exerciseIds.some((id: unknown) => typeof id !== "number" || !Number.isSafeInteger(id) || id < 1 || id > 2_147_483_647)) return res.status(400).json({ error: "Invalid exercise ID" });
+    const uniqueIds = [...new Set<number>(exerciseIds)];
+    if (uniqueIds.some((id) => !Number.isSafeInteger(id) || id < 1 || id > 2_147_483_647)) {
       return res.status(400).json({ error: "Invalid exercise ID" });
     }
 
@@ -1202,7 +1225,7 @@ app.post("/api/templates", async (req, res) => {
 
     res.status(201).json(template);
   } catch (error) {
-    console.error("Failed to create workout template:", error);
+    logError("Failed to create workout template:", error);
     res.status(500).json({ error: "Failed to create workout template" });
   }
 });
@@ -1213,7 +1236,7 @@ app.put("/api/templates/:id", async (req, res) => {
     const { name, exerciseIds } = req.body;
     const trimmedName = typeof name === "string" ? name.trim() : "";
 
-    if (!Number.isInteger(id) || !trimmedName || !Array.isArray(exerciseIds) || exerciseIds.length === 0) {
+    if (!Number.isInteger(id) || !trimmedName || !Array.isArray(exerciseIds) || exerciseIds.length === 0 || exerciseIds.length > WORKOUT_LIMITS.exercises) {
       return res.status(400).json({ error: "Name and at least one exercise are required" });
     }
 
@@ -1223,7 +1246,8 @@ app.put("/api/templates/:id", async (req, res) => {
       return res.status(403).json({ error: "Only personal templates can be edited" });
     }
 
-    const uniqueIds = [...new Set(exerciseIds.map(Number))];
+    if (exerciseIds.some((id: unknown) => typeof id !== "number" || !Number.isSafeInteger(id) || id < 1 || id > 2_147_483_647)) return res.status(400).json({ error: "Invalid exercise ID" });
+    const uniqueIds = [...new Set<number>(exerciseIds)];
     if (uniqueIds.some((exerciseId) => !Number.isInteger(exerciseId))) {
       return res.status(400).json({ error: "Invalid exercise ID" });
     }
@@ -1251,7 +1275,7 @@ app.put("/api/templates/:id", async (req, res) => {
 
     res.json(template);
   } catch (error) {
-    console.error("Failed to update workout template:", error);
+    logError("Failed to update workout template:", error);
     res.status(500).json({ error: "Failed to update workout template" });
   }
 });
@@ -1273,7 +1297,7 @@ app.delete("/api/templates/:id", async (req, res) => {
     ]);
     res.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete workout template:", error);
+    logError("Failed to delete workout template:", error);
     res.status(500).json({ error: "Failed to delete workout template" });
   }
 });
@@ -1426,7 +1450,7 @@ app.post(
 
       res.status(201).json(workout);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to create workout:",
         error,
       );
@@ -1548,7 +1572,7 @@ app.patch(
 
       res.json(updated);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to update workout exercise settings:",
         error,
       );
@@ -1644,9 +1668,7 @@ app.post(
               workoutExerciseId,
           );
 
-        if (!workoutExercise) {
-          continue;
-        }
+        if (!workoutExercise) return res.status(400).json({ error: "Invalid workout exercise" });
 
         if (
           !Array.isArray(
@@ -1860,10 +1882,23 @@ app.post(
 
       if (!validatedSets.length) return res.status(400).json({ error: "Complete at least one set before finishing" });
       if (new Set(validatedSets.map((set) => `${set.workoutExerciseId}:${set.setNumber}`)).size !== validatedSets.length) return res.status(400).json({ error: "Duplicate sets" });
+      // Validate again using persisted units when the finish payload omits them.
+      if (exercises.some((entry: any) => {
+        const existing = workout.exercises.find((item) => item.id === entry.workoutExerciseId);
+        return !existing || !validSets(entry.sets, false, entry.weightUnit ?? existing.weightUnit, entry.distanceUnit ?? existing.distanceUnit);
+      })) return res.status(400).json({ error: "Workout measurements exceed safety limits" });
       const completedSetCount = validatedSets.filter((set) => set.setType !== "WARMUP").length;
       const earnedXp = workoutXp(completedSetCount);
 
       const finishedWorkout = await prisma.$transaction(async (transaction) => {
+        // Serialize all XP awards for one user across devices; survive process restarts.
+        await transaction.$executeRaw`SELECT pg_advisory_xact_lock(${workout.userId}::int)`;
+        const current = await transaction.workout.findUnique({ where: { id: workoutId } });
+        if (!current || current.endedAt || current.revision !== workout.revision || current.suspended) throw new WorkoutConflictError();
+        const recent = await transaction.xpEvent.findMany({ where: { userId: workout.userId, createdAt: { gte: new Date(Date.now() - 60 * 60_000) } }, orderBy: { createdAt: "desc" }, take: 12 });
+        const latest = recent[0];
+        if (latest && Date.now() - latest.createdAt.getTime() < 60_000) throw new WorkoutFrequencyError(Math.ceil((60_000 - (Date.now() - latest.createdAt.getTime())) / 1000));
+        if (recent.length >= 12) throw new WorkoutFrequencyError(Math.ceil((recent[11]!.createdAt.getTime() + 60 * 60_000 - Date.now()) / 1000));
         for (const set of validatedSets) {
           await transaction.workoutSet.upsert({
             where: {
@@ -1907,8 +1942,10 @@ app.post(
         { ...finishedWorkout, earnedXp, progress: await getProgress(workout.userId) },
       );
     } catch (error) {
+      if (error instanceof WorkoutConflictError) return res.status(409).json({ error: "Workout changed or was already finished. Reload it." });
+      if (error instanceof WorkoutFrequencyError) return tooMany(res, error.retryAfter);
       if (["P2025", "P2002"].includes((error as { code?: string }).code ?? "")) return res.status(409).json({ error: "Workout changed or was already finished. Reload it." });
-      console.error(
+      logError(
         "Failed to finish workout:",
         error,
       );
@@ -2022,33 +2059,23 @@ app.post(
         );
       }
 
-      const nextOrder =
-        workout.exercises.reduce(
-          (highest, item) =>
-            Math.max(
-              highest,
-              item.order,
-            ),
-          -1,
-        ) + 1;
-
-      const workoutExercise =
-        await prisma.workoutExercise.create({
-          data: {
-            workoutId,
-            exerciseId:
-              exercise.id,
-            order: nextOrder,
-            weightUnit,
-            distanceUnit,
-          },
-        });
+      const workoutExercise = await prisma.$transaction(async (tx) => {
+        const locked = await tx.workout.updateMany({ where: { id: workoutId, userId: authUserId(req), endedAt: null, suspended: false }, data: { revision: { increment: 0 } } });
+        if (!locked.count) return null;
+        const current = await tx.workout.findFirst({ where: { id: workoutId, userId: authUserId(req), endedAt: null, suspended: false }, include: { exercises: true } });
+        if (!current) return null;
+        const duplicate = current.exercises.find((item) => item.exerciseId === exercise.id);
+        if (duplicate) return duplicate;
+        if (current.exercises.length >= WORKOUT_LIMITS.exercises) return null;
+        return tx.workoutExercise.create({ data: { workoutId, exerciseId: exercise.id, order: current.exercises.reduce((n, item) => Math.max(n, item.order + 1), 0), weightUnit, distanceUnit } });
+      });
+      if (!workoutExercise) return res.status(400).json({ error: "Workout is inactive or exercise limit exceeded" });
 
       return res.json(
         workoutExercise,
       );
     } catch (error) {
-      console.error(
+      logError(
         "Failed to add exercise to workout:",
         error,
       );
@@ -2239,7 +2266,7 @@ app.get(
 
       return res.json(workouts);
     } catch (error) {
-      console.error(
+      logError(
         "Failed to load workout history:",
         error,
       );
@@ -2370,7 +2397,7 @@ app.get(
           ),
       });
     } catch (error) {
-      console.error(
+      logError(
         "Failed to load previous exercise:",
         error,
       );
@@ -2481,7 +2508,7 @@ app.post("/api/feedback", async (req, res) => {
 });
 app.put("/api/account/password", async (req, res) => {
   const { currentPassword, password } = req.body;
-  if (typeof currentPassword !== "string" || typeof password !== "string" || password.length < 8 || Buffer.byteLength(password) > 72) return res.status(400).json({ error: "Password must contain 8–72 characters" });
+  if (typeof currentPassword !== "string" || Buffer.byteLength(currentPassword) > 72 || typeof password !== "string" || password.length < 8 || Buffer.byteLength(password) > 72) return res.status(400).json({ error: "Password must contain 8–72 characters" });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: authUserId(req) } });
   if (!user.passwordHash || !await bcrypt.compare(currentPassword, user.passwordHash)) return res.status(403).json({ error: "Current password is incorrect" });
   const passwordHash = await bcrypt.hash(password, 12);
@@ -2490,7 +2517,7 @@ app.put("/api/account/password", async (req, res) => {
 });
 app.delete("/api/account", async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: authUserId(req) } });
-  if (typeof req.body.password !== "string" || !user.passwordHash || !await bcrypt.compare(req.body.password, user.passwordHash)) return res.status(403).json({ error: "Password is incorrect" });
+  if (typeof req.body.password !== "string" || Buffer.byteLength(req.body.password) > 72 || !user.passwordHash || !await bcrypt.compare(req.body.password, user.passwordHash)) return res.status(403).json({ error: "Password is incorrect" });
   await prisma.$transaction(async (tx) => {
     await tx.workout.deleteMany({ where: { userId: user.id } });
     await tx.workoutTemplate.deleteMany({ where: { userId: user.id } });
@@ -2499,9 +2526,12 @@ app.delete("/api/account", async (req, res) => {
   });
   res.json({ success: true });
 });
-app.use((error: { code?: string }, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("API error", error);
-  res.status(error.code === "P2002" ? 409 : 500).json({ error: error.code === "P2002" ? "This name or request already exists" : "The request could not be completed" });
+app.use((error: { code?: string; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
+  const inputError = ["entity.parse.failed", "entity.too.large", "request.aborted", "encoding.unsupported", "charset.unsupported"].includes(error.type ?? "") || error.code === "P2000";
+  if (inputError) return res.status(400).json({ error: "Invalid request body or size limit exceeded", code: "INVALID_INPUT" });
+  if (error.code === "P2002") return res.status(409).json({ error: "The request conflicts with existing data", code: "CONFLICT" });
+  logError("api_error", error, res.locals.requestId);
+  res.status(500).json({ error: "The request could not be completed", code: "INTERNAL_ERROR", requestId: res.locals.requestId });
 });
 
 app.listen(

@@ -1,0 +1,18 @@
+[Unit]
+Description=Vytor encrypted offsite PostgreSQL backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vytor
+EnvironmentFile=/etc/vytor/backup.env
+ExecStart=/bin/bash /opt/vytor/deployment/backup.sh
+UMask=0077
+TimeoutStartSec=2h
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

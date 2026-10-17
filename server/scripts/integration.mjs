@@ -5,18 +5,23 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import pg from "pg";
 
+// Refuse the development DATABASE_URL: integration writes require an explicit test DB.
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!testDatabaseUrl || !/^vytor_[a-z_]*test$/.test(new URL(testDatabaseUrl).pathname.slice(1))) {
+  throw new Error("TEST_DATABASE_URL must point to a dedicated vytor_*test database");
+}
 // All migrations and API writes run in a fresh, isolated PostgreSQL schema.
 const schema = `vytor_test_${Date.now()}_${process.pid}`;
-const connection = new pg.Client({ connectionString: process.env.DATABASE_URL });
+const connection = new pg.Client({ connectionString: testDatabaseUrl });
 await connection.connect();
 await connection.query(`CREATE SCHEMA "${schema}"`);
-const url = new URL(process.env.DATABASE_URL);
+const url = new URL(testDatabaseUrl);
 url.searchParams.set("schema", schema);
 const probe = createServer();
 await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port;
 await new Promise((resolve) => probe.close(resolve));
-const env = { ...process.env, DATABASE_URL: url.toString(), DATABASE_SCHEMA: schema, PORT: String(port) };
+const env = { ...process.env, NODE_ENV: "test", DATABASE_URL: url.toString(), DATABASE_SCHEMA: schema, PORT: String(port) };
 let server;
 let logs = "";
 async function run(script, args) {
@@ -51,6 +56,13 @@ try {
   const b = await api("/users", "POST", { username: "tester_b", password }, undefined, 201);
   const c = await api("/users", "POST", { username: "tester_c", password }, undefined, 201);
   const secondDevice = await api("/login", "POST", { username: "tester_a", password });
+  await api(`/users/${a.id}`, "GET", undefined, b.token, 403);
+  for (const malformed of [null, [], { userId: a.id, exercises: [null] }, { userId: a.id, exercises: [{ exerciseId: "1" }] }, { userId: a.id, exercises: Array(31).fill({ exerciseId: 1 }) }]) await api("/workouts", "POST", malformed, a.token, 400);
+  const malformedJson = await fetch(base + "/workouts", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${a.token}` }, body: "{" });
+  assert.equal(malformedJson.status, 400);
+  const oversized = await fetch(base + "/workouts", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${a.token}` }, body: JSON.stringify({ data: "x".repeat(3_200_000) }) });
+  assert.equal(oversized.status, 400);
+
   await api("/settings", "GET", undefined, undefined, 401);
   const exercises = await api("/exercises", "GET", undefined, a.token);
   assert.ok(exercises.length > 10);
@@ -98,8 +110,16 @@ try {
   assert.equal((await api("/workouts/active/current", "GET", undefined, a.token)).exercises.length, 1);
   await api(`/workouts/${workout.id}/finish`, "POST", { exercises: [] }, a.token, 400);
   const payload = { revision: 2, exercises: [{ workoutExerciseId: workout.exercises[0].id, weightUnit: "LBS", sets: [{ setNumber: 1, weight: 100, reps: 10, setType: "REGULAR" }, { setNumber: 2, weight: 80, reps: 8, setType: "DROP" }, { setNumber: 3, weight: 40, reps: 10, setType: "WARMUP" }] }] };
+  for (const set of [null, { setNumber: 1, reps: -1, weight: 100 }, { setNumber: 1, reps: 12, weight: 100, setType: "FAKE" }, { setNumber: 1, reps: Number.MAX_SAFE_INTEGER, weight: 100 }, { setNumber: 1, durationSeconds: 86401 }]) await api(`/workouts/${workout.id}/finish`, "POST", { ...payload, exercises: [{ workoutExerciseId: workout.exercises[0].id, sets: [set] }] }, a.token, 400);
+  await api(`/workouts/${workout.id}/finish`, "POST", payload, b.token, 404);
+  await api(`/WORKOUTS/%${workout.id.toString().charCodeAt(0).toString(16)}/FINISH/`, "POST", { ...payload, exercises: [null] }, a.token, 400);
+
   await api(`/workouts/${workout.id}/finish`, "POST", { ...payload, revision: 0 }, a.token, 409);
-  const finished = await api(`/workouts/${workout.id}/finish`, "POST", payload, a.token);
+  // Race two devices: award XP exactly once.
+  const finishRace = await Promise.all([1, 2].map(() => fetch(base + `/workouts/${workout.id}/finish`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${a.token}` }, body: JSON.stringify(payload) })));
+  assert.equal(finishRace.filter((r) => r.status === 200).length, 1);
+  assert.ok(finishRace.every((r) => [200, 400, 409].includes(r.status)));
+  const finished = await finishRace.find((r) => r.status === 200).json();
   assert.equal(finished.earnedXp, 120);
   assert.ok(Math.abs(finished.exercises[0].sets[0].weight - 45.359237) < 0.001);
   await api(`/workouts/${workout.id}/finish`, "POST", payload, a.token, 400);
@@ -131,6 +151,40 @@ try {
   await api(`/exercises/${custom.id}`, "DELETE", undefined, a.token);
   await api("/account", "DELETE", { password }, a.token);
   await api("/settings", "GET", undefined, secondDevice.token, 401);
+
+  // Legitimate time-based Boxing and rapid completion abuse use the same API.
+  const time = exercises.find((e) => e.measurementType === "TIME");
+  assert.ok(time);
+  const boxing = await api("/workouts", "POST", { userId: b.id, exercises: [{ exerciseId: time.id }] }, b.token, 201);
+  const round = (w) => ({ revision: 0, exercises: [{ workoutExerciseId: w.exercises[0].id, sets: [{ setNumber: 1, durationSeconds: 180, setType: "REGULAR" }] }] });
+  assert.equal((await api(`/workouts/${boxing.id}/finish`, "POST", round(boxing), b.token)).earnedXp, 110);
+  const spam = await api("/workouts", "POST", { userId: b.id, exercises: [{ exerciseId: time.id }] }, b.token, 201);
+  const burst = await fetch(base + `/workouts/${spam.id}/finish`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${b.token}` }, body: JSON.stringify(round(spam)) });
+  assert.equal(burst.status, 429);
+  assert.ok(Number(burst.headers.get("retry-after")) > 0);
+  assert.equal((await api(`/users/${b.id}`, "GET", undefined, b.token)).xp, 110);
+  assert.equal((await api("/workouts/active/current", "GET", undefined, b.token)).id, spam.id);
+  // Persisted hourly history blocks abuse even after the minute cooldown has expired.
+  await connection.query(`UPDATE "${schema}"."XpEvent" SET "createdAt" = now() - interval '2 minutes' WHERE "userId" = $1`, [b.id]);
+  await connection.query(`WITH fixtures AS (
+    INSERT INTO "${schema}"."Workout" ("userId", "startedAt", "endedAt") SELECT $1, now() - interval '3 minutes', now() - interval '2 minutes' FROM generate_series(1,11) RETURNING id
+  ) INSERT INTO "${schema}"."XpEvent" ("userId", "workoutId", points, "createdAt") SELECT $1, id, 0, now() - interval '2 minutes' FROM fixtures`, [b.id]);
+  const hourly = await fetch(base + `/workouts/${spam.id}/finish`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${b.token}` }, body: JSON.stringify(round(spam)) });
+  assert.equal(hourly.status, 429);
+  assert.ok(Number(hourly.headers.get("retry-after")) > 3000);
+  assert.equal((await api(`/users/${b.id}`, "GET", undefined, b.token)).xp, 110);
+  // Actual login endpoint, including unknown accounts and spoofed forwarded headers.
+  const unknown = await api("/login", "POST", { username: "missing_account", password: "wrong" }, undefined, 401);
+  for (let i = 0; i < 10; i++) assert.deepEqual(await api("/login", "POST", { username: "tester_b", password: "wrong" }, undefined, 401), unknown);
+  await api("/login", "POST", { username: "TESTER_B", password: "wrong" }, undefined, 429);
+  // Three password checks above already consumed this shared IP budget.
+  for (let i = 0; i < 7; i++) await api("/account/password", "PUT", { currentPassword: "wrong", password: "valid-password-123" }, b.token, 403);
+  await api("/account", "DELETE", { password: "wrong" }, b.token, 429);
+  // 3 successful registrations above; invalid registrations also consume the IP budget.
+  for (let i = 3; i < 20; i++) await api("/users", "POST", {}, undefined, 400);
+  const limitedRegistration = await fetch(base + "/users", { method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": "203.0.113.99" }, body: "{}" });
+  assert.equal(limitedRegistration.status, 429);
+  assert.ok(Number(limitedRegistration.headers.get("retry-after")) > 0);
   console.log("PASS: migrations, seed, auth, profiles, friends, templates, draft conflict, device resume, exercise deletion, units, sets, XP, permissions, settings, feedback and account cleanup");
 } catch (error) {
   console.error(logs);
