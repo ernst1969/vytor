@@ -77,17 +77,19 @@ npm start
 
 Ein partieller PostgreSQL-Unique-Index erlaubt nur ein aktives, nicht pausiertes Workout je Konto. Home setzt nach Login ein vorhandenes Server-Workout fort; konkurrierende Starts erhalten HTTP 409. Übungen können hinzugefügt, entfernt, atomar ersetzt und umgeordnet werden.
 
-Sätze, Notizen, Einheiten, Form-Cues und das absolute Timer-Ende werden lokal pro Konto gespeichert. Änderungen werden nach 800 ms als versionierter Entwurf synchronisiert; fehlgeschlagene Übertragungen werden alle 15 Sekunden erneut versucht. Ein Timeout beendet hängende Requests nach 15 Sekunden.
+Sätze, Notizen, Einheiten, Form-Cues und das absolute Timer-Ende werden lokal pro Konto gespeichert. Lokale Schreibvorgänge sind serialisiert; beim Hintergrundwechsel und vor einem Draft-Wechsel wird ein Flush versucht. Änderungen werden nach 800 ms als versionierter Entwurf synchronisiert; fehlgeschlagene Übertragungen werden alle 15 Sekunden erneut versucht. Ein Timeout beendet hängende Requests nach 15 Sekunden.
 
 Der Server akzeptiert nur die erwartete Entwurfsversion und die aktuelle Übungsliste. Bei konkurrierenden Änderungen bleiben lokale Daten erhalten und die App zeigt einen Konflikt. „Reload server workout“ ersetzt lokale Änderungen nach ausdrücklicher Bestätigung. Bereits bestätigte lokale Daten werden beim Neustart durch den aktuellen Serverstand ersetzt; ungesendete Daten mit passender Basisversion werden weiter synchronisiert.
 
-Bei schlechter Verbindung können Sätze eines bereits gestarteten Workouts lokal weiter bearbeitet werden. Trainingsstart, strukturelle Übungsänderungen, Abschluss und Verwerfen benötigen eine Verbindung; dafür gibt es keine vollständige Offline-Warteschlange. Andere Geräte sehen den zuletzt bestätigten Serverentwurf. Passwortänderung beendet alle Sessions; Logout entfernt den Entwurf dieses Geräts und beendet dessen Session.
+Bei schlechter Verbindung können Sätze eines bereits gestarteten Workouts lokal weiter bearbeitet werden. Trainingsstart, strukturelle Übungsänderungen, Abschluss und Verwerfen benötigen eine Verbindung; dafür gibt es keine vollständige Offline-Warteschlange. Andere Geräte sehen den zuletzt bestätigten Serverentwurf. Alle strukturellen Änderungen prüfen und erhöhen atomar die Revision. Drop-Sets besitzen nach Abschluss eine Datenbankreferenz auf ihren Ursprungssatz. Passwortänderung beendet alle Sessions; Logout entfernt den Entwurf dieses Geräts und beendet dessen Session.
+
+Native Bearer-Tokens liegen in `expo-secure-store` (Android Keystore/iOS Keychain). Ein vorhandenes korrekt formatiertes Legacy-Token wird verifiziert in SecureStore geschrieben und erst danach aus AsyncStorage entfernt; Speichervorgänge, Migration und Logout sind serialisiert. Web verwendet absichtlich nur tabgebundenes `sessionStorage`: ein Reload innerhalb des Tabs bleibt angemeldet, ein geschlossener Tab nicht. Ein HttpOnly-Cookie-Flow ist nicht implementiert.
 
 Gewichte werden als kg, Distanzen als km und Zeiten als Sekunden gespeichert. Anzeige und Einheitenwechsel rechnen um. Abschluss, Satzdaten und XP sind transaktional; 100 Basis-XP plus 10 XP pro abgeschlossenem Nicht-Warm-up-Satz werden einmalig vergeben. 1RM nutzt die Epley-Schätzung und ist entsprechend gekennzeichnet.
 
 ## Datenbankänderungen
 
-Die Migration `20261016190000_complete_training_features` ergänzt Entwürfe, Versionen, Notizen, persönliche Übungseinstellungen, eigene Übungen und Feedback. Sie repariert auch das bisher im Modell fehlende Pflichtfeld `FriendRequest.updatedAt`, das neue Freundschaftsanfragen verhinderte.
+Die Migration `20261016190000_complete_training_features` ergänzt Entwürfe, Versionen, Notizen, persönliche Übungseinstellungen, eigene Übungen und Feedback. `20261021120000_stable_drop_sets` ergänzt stabile Drop-Set-Ursprünge und ordnet historische Drop-Sets dem nächsten vorherigen Nicht-Drop-Satz zu. `20261021121000_case_insensitive_usernames` erzwingt die bereits von der API erwartete Groß-/Kleinschreibungs-Eindeutigkeit und bricht bei Bestandskollisionen bewusst ab.
 
 Die historische Messartenmigration wurde für eine saubere Wiederholung korrigiert: kein festes `public`-Schema, `MILES` → `MI`, Erhalt vorhandener Messarten. Bereits angewendete Installationen benötigen dafür keinen Reset. Bei Entwicklungsdatenbanken kann Prisma die geänderte historische Prüfsumme melden; keinen automatischen Reset einer Datenbank mit Nutzerdaten bestätigen. Die neue additive Migration ist der Upgrade-Pfad; ein Baseline-Abgleich bestehender Installationen bleibt eine bewusste Wartungsaktion.
 
@@ -122,7 +124,7 @@ npm run test:integration
 npx prisma validate
 ```
 
-Die additive Migration wurde auf der lokalen Entwicklungsdatenbank erfolgreich angewendet.
+Alle zwölf Migrationen wurden auf einem frischen temporären PostgreSQL-18.6-Cluster als dedizierte Migrationsrolle angewendet. Ein Custom-Format-Dump wurde in eine zweite Datenbank restauriert; Datenprobe, Sequenzen, Migrationstabelle und Runtime-Rechte wurden geprüft. Dies bestätigt nicht den noch extern zu testenden Restic-Transport.
 
 Der Integrationstest benötigt eine erreichbare `DATABASE_URL` sowie Rechte zum Erstellen/Löschen eines Schemas. Er legt ein eindeutig benanntes Testschema an, spielt sämtliche Migrationen und den Seed ein, startet einen separaten API-Prozess und prüft echte HTTP-Aufrufe. Danach entfernt er ausschließlich das Testschema. `DATABASE_SCHEMA` steuert dabei das Prisma-Adapter-Schema; im normalen Betrieb ist es `public`.
 
@@ -132,7 +134,7 @@ Ein erfolgreicher Plattformexport ersetzt keine Interaktionsprüfung auf Geräte
 
 ## EAS und Release
 
-`eas.json` enthält Profile für interne Preview-Builds und Production sowie ein Submit-Profil. Projektzuordnung, eigene Bundle-/Package-Identifier, Store-Konten, Signierungsdaten und öffentliche HTTPS-API-Adresse müssen vor dem ersten Release eingerichtet werden. Es wurden keine Cloud-Builds oder Store-Veröffentlichungen gestartet.
+`eas.json` enthält Profile für interne Preview-Builds und Production sowie ein Submit-Profil. Projektzuordnung, eigene Bundle-/Package-Identifier, Store-Konten, Signierungsdaten und öffentliche HTTPS-API-Adresse müssen vor dem ersten Release eingerichtet werden. Wegen SecureStore ist ein neuer nativer Build erforderlich. Es wurden keine Cloud-Builds oder Store-Veröffentlichungen gestartet.
 
 ```bash
 npx eas-cli@latest build:configure

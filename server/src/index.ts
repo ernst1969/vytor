@@ -6,7 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import "dotenv/config";
 import express, { type NextFunction, type Request, type Response } from "express";
 
-import { authLimits, accountPasswordLimits, proxyTrust, requestIdentity, logError, tooMany } from "./security.js";
+import { authLimits, accountPasswordLimits, proxyTrust, registrationAllowed, requestIdentity, logError, tooMany } from "./security.js";
 import { workoutValidation, boundedTree, object, WORKOUT_LIMITS, validSets } from "./workout-validation.js";
 
 import { validTemplateConfiguration } from "./validation.js";
@@ -18,9 +18,14 @@ class WorkoutFrequencyError extends Error { constructor(public readonly retryAft
 const loginTimingHash = bcrypt.hashSync("vytor-nonexistent-account-timing", 12);
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
+const configuredWebOrigin = process.env.WEB_ORIGIN?.replace(/\/$/, "") || "";
 
 if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required in production");
+}
+if (process.env.NODE_ENV === "production" && configuredWebOrigin) {
+  const url = new URL(configuredWebOrigin);
+  if (url.protocol !== "https:" || url.origin !== configuredWebOrigin) throw new Error("WEB_ORIGIN must be one exact HTTPS origin without path, query, credentials or fragment");
 }
 
 const adapter = new PrismaPg({
@@ -32,7 +37,7 @@ const prisma = new PrismaClient({
 });
 
 // Native mobile clients do not require browser CORS access.
-app.use(cors(process.env.NODE_ENV === "production" ? { origin: false } : undefined));
+app.use(cors(process.env.NODE_ENV === "production" ? { origin: configuredWebOrigin || false } : undefined));
 app.disable("x-powered-by");
 if (process.env.NODE_ENV === "production" && !process.env.TRUSTED_PROXY_IP) throw new Error("TRUSTED_PROXY_IP must identify the Caddy container in production");
 app.set("trust proxy", proxyTrust(process.env.TRUSTED_PROXY_IP));
@@ -191,6 +196,10 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/users", async (req, res) => {
   try {
     const { username, password } = req.body;
+
+    if (!registrationAllowed(process.env.NODE_ENV, process.env.REGISTRATION_INVITE_CODE_SHA256, req.body.inviteCode)) {
+      return res.status(403).json({ error: "Registration requires a valid private-beta invitation", code: "REGISTRATION_CLOSED" });
+    }
 
     if (!username || typeof username !== "string") {
       return res.status(400).json({
@@ -487,7 +496,6 @@ app.get(
             username: true,
             displayName: true,
             avatarData: true,
-            createdAt: true,
           },
         });
 
@@ -498,14 +506,8 @@ app.get(
       }
 
       const viewerId = (req as AuthenticatedRequest).userId!;
-      const [progress, recentWorkouts, relationship] = await Promise.all([
+      const [progress, relationship] = await Promise.all([
         getProgress(userId),
-        prisma.workout.findMany({
-          where: { userId, endedAt: { not: null } },
-          orderBy: { endedAt: "desc" },
-          take: 14,
-          select: { id: true, startedAt: true, endedAt: true },
-        }),
         prisma.friendRequest.findFirst({
           where: {
             OR: [
@@ -516,6 +518,13 @@ app.get(
           select: { id: true, requesterId: true, status: true },
         }),
       ]);
+      const mayViewActivity = viewerId === userId || relationship?.status === "ACCEPTED";
+      const recentWorkouts = mayViewActivity ? await prisma.workout.findMany({
+        where: { userId, endedAt: { not: null } },
+        orderBy: { endedAt: "desc" },
+        take: 14,
+        select: { id: true, startedAt: true, endedAt: true },
+      }) : [];
 
       res.json({
         ...user,
@@ -860,16 +869,14 @@ app.post(
       }
 
       const updated =
-        await prisma.friendRequest.update({
-          where: {
-            id: requestId,
-          },
+        await prisma.friendRequest.updateMany({
+          where: { id: requestId, recipientId: userId, status: "PENDING" },
           data: {
             status: "ACCEPTED",
           },
         });
-
-      res.json(updated);
+      if (!updated.count) return res.status(409).json({ error: "This request is no longer pending" });
+      res.json({ success: true });
     } catch (error) {
       logError(
         "Failed to accept friend request:",
@@ -934,14 +941,13 @@ app.post(
         });
       }
 
-      await prisma.friendRequest.update({
-        where: {
-          id: requestId,
-        },
+      const updated = await prisma.friendRequest.updateMany({
+        where: { id: requestId, recipientId: userId, status: "PENDING" },
         data: {
           status: "REJECTED",
         },
       });
+      if (!updated.count) return res.status(409).json({ error: "This request is no longer pending" });
 
       res.json({
         success: true,
@@ -1645,6 +1651,7 @@ app.post(
         reps: number | null;
         durationSeconds: number | null;
         setType: "WARMUP" | "REGULAR" | "DROP";
+        dropSetOfNumber: number | null;
       }[] = [];
 
       for (const exercise of exercises) {
@@ -1876,7 +1883,23 @@ app.post(
             reps,
             durationSeconds,
             setType: ["WARMUP", "DROP"].includes(set.setType) ? set.setType : "REGULAR",
+            dropSetOfNumber: null,
           });
+        }
+
+        const exerciseSets = validatedSets.filter((set) => set.workoutExerciseId === workoutExerciseId);
+        for (const [index, set] of exerciseSets.entries()) {
+          const payloadSet = exercise.sets.find((candidate: { setNumber?: unknown }) => Number(candidate.setNumber) === set.setNumber);
+          if (set.setType !== "DROP") continue;
+          const explicitSourceId = typeof payloadSet?.dropSetOfId === "string" ? payloadSet.dropSetOfId : null;
+          const explicitSource = explicitSourceId
+            ? exercise.sets.find((candidate: { id?: unknown }) => candidate.id === explicitSourceId)
+            : null;
+          const fallback = [...exerciseSets.slice(0, index)].reverse().find((candidate) => candidate.setType !== "DROP");
+          const sourceNumber = explicitSource ? Number(explicitSource.setNumber) : fallback?.setNumber;
+          const source = exerciseSets.find((candidate) => candidate.setNumber === sourceNumber && candidate.setType !== "DROP");
+          if (!source) return res.status(400).json({ error: `Drop set ${set.setNumber} has no valid origin set` });
+          set.dropSetOfNumber = source.setNumber;
         }
       }
 
@@ -1899,16 +1922,26 @@ app.post(
         const latest = recent[0];
         if (latest && Date.now() - latest.createdAt.getTime() < 60_000) throw new WorkoutFrequencyError(Math.ceil((60_000 - (Date.now() - latest.createdAt.getTime())) / 1000));
         if (recent.length >= 12) throw new WorkoutFrequencyError(Math.ceil((recent[11]!.createdAt.getTime() + 60 * 60_000 - Date.now()) / 1000));
+        const persistedSetIds = new Map<string, number>();
         for (const set of validatedSets) {
-          await transaction.workoutSet.upsert({
+          const { dropSetOfNumber: _dropSetOfNumber, ...values } = set;
+          const persisted = await transaction.workoutSet.upsert({
             where: {
               workoutExerciseId_setNumber: {
                 workoutExerciseId: set.workoutExerciseId,
                 setNumber: set.setNumber,
               },
             },
-            update: set,
-            create: set,
+            update: { ...values, dropSetOfId: null },
+            create: values,
+          });
+          persistedSetIds.set(`${set.workoutExerciseId}:${set.setNumber}`, persisted.id);
+        }
+        for (const set of validatedSets) {
+          if (set.dropSetOfNumber === null) continue;
+          await transaction.workoutSet.update({
+            where: { workoutExerciseId_setNumber: { workoutExerciseId: set.workoutExerciseId, setNumber: set.setNumber } },
+            data: { dropSetOfId: persistedSetIds.get(`${set.workoutExerciseId}:${set.dropSetOfNumber}`)! },
           });
         }
 
@@ -1973,6 +2006,7 @@ app.post(
       const exerciseId = Number(
         req.body.exerciseId,
       );
+      const revision = Number(req.body.revision);
 
       const weightUnit =
         req.body.weightUnit ===
@@ -2003,6 +2037,7 @@ app.post(
             "Invalid exercise ID",
         });
       }
+      if (!Number.isInteger(revision) || revision < 0) return res.status(400).json({ error: "Draft revision is required" });
 
       const workout =
         await prisma.workout.findUnique({
@@ -2046,35 +2081,23 @@ app.post(
         });
       }
 
-      const existingExercise =
-        workout.exercises.find(
-          (item) =>
-            item.exerciseId ===
-            exercise.id,
-        );
-
-      if (existingExercise) {
-        return res.json(
-          existingExercise,
-        );
-      }
-
       const workoutExercise = await prisma.$transaction(async (tx) => {
-        const locked = await tx.workout.updateMany({ where: { id: workoutId, userId: authUserId(req), endedAt: null, suspended: false }, data: { revision: { increment: 0 } } });
+        const locked = await tx.workout.updateMany({ where: { id: workoutId, userId: authUserId(req), endedAt: null, suspended: false, revision }, data: { revision: { increment: 1 } } });
         if (!locked.count) return null;
         const current = await tx.workout.findFirst({ where: { id: workoutId, userId: authUserId(req), endedAt: null, suspended: false }, include: { exercises: true } });
         if (!current) return null;
         const duplicate = current.exercises.find((item) => item.exerciseId === exercise.id);
-        if (duplicate) return duplicate;
-        if (current.exercises.length >= WORKOUT_LIMITS.exercises) return null;
-        return tx.workoutExercise.create({ data: { workoutId, exerciseId: exercise.id, order: current.exercises.reduce((n, item) => Math.max(n, item.order + 1), 0), weightUnit, distanceUnit } });
+        if (duplicate || current.exercises.length >= WORKOUT_LIMITS.exercises) throw new WorkoutConflictError();
+        const created = await tx.workoutExercise.create({ data: { workoutId, exerciseId: exercise.id, order: current.exercises.reduce((n, item) => Math.max(n, item.order + 1), 0), weightUnit, distanceUnit } });
+        return { ...created, revision: revision + 1 };
       });
-      if (!workoutExercise) return res.status(400).json({ error: "Workout is inactive or exercise limit exceeded" });
+      if (!workoutExercise) return res.status(409).json({ error: "Workout changed on another device. Reload before adding an exercise." });
 
       return res.json(
         workoutExercise,
       );
     } catch (error) {
+      if (error instanceof WorkoutConflictError || (error as { code?: string }).code === "P2002") return res.status(409).json({ error: "Workout changed or already contains this exercise. Reload it." });
       logError(
         "Failed to add exercise to workout:",
         error,
@@ -2112,16 +2135,24 @@ app.delete(
   "/api/workout-exercises/:id",
   async (req: AuthenticatedRequest, res) => {
     const id = Number(req.params.id);
+    const revision = Number(req.body.revision);
     const existing = await prisma.workoutExercise.findFirst({
-      where: { id, workout: { userId: req.userId!, endedAt: null, suspended: false } },
+      where: { id, workout: { userId: req.userId!, endedAt: null, suspended: false } }, include: { workout: true },
     });
 
     if (!existing) {
       return res.status(404).json({ error: "Active workout exercise not found" });
     }
 
-    await prisma.workoutExercise.delete({ where: { id } });
-    res.json({ success: true });
+    const draft = existing.workout.draft as { exercises?: { workoutExerciseId: number }[] } | null;
+    const deleted = await prisma.$transaction(async (tx) => {
+      const changed = await tx.workout.updateMany({ where: { id: existing.workoutId, userId: req.userId!, endedAt: null, suspended: false, revision }, data: { revision: { increment: 1 }, draft: draft ? { ...draft, exercises: draft.exercises?.filter((item) => item.workoutExerciseId !== id) ?? [] } : Prisma.DbNull } });
+      if (!changed.count) return false;
+      await tx.workoutExercise.delete({ where: { id } });
+      return true;
+    });
+    if (!deleted) return res.status(409).json({ error: "Workout changed on another device. Reload before deleting." });
+    res.json({ success: true, revision: revision + 1 });
   },
 );
 
@@ -2130,6 +2161,7 @@ app.patch(
   async (req: AuthenticatedRequest, res) => {
     const workoutId = Number(req.params.id);
     const exerciseIds = req.body.exerciseIds;
+    const revision = Number(req.body.revision);
     const workout = await prisma.workout.findFirst({
       where: { id: workoutId, userId: req.userId!, endedAt: null, suspended: false },
       include: { exercises: true },
@@ -2146,13 +2178,14 @@ app.patch(
       return res.status(400).json({ error: "Exercise order must contain every workout exercise" });
     }
 
-    await prisma.$transaction(
-      exerciseIds.map((id: number, order: number) =>
-        prisma.workoutExercise.update({ where: { id }, data: { order } }),
-      ),
-    );
-
-    res.json({ success: true });
+    const changed = await prisma.$transaction(async (tx) => {
+      const locked = await tx.workout.updateMany({ where: { id: workoutId, userId: req.userId!, endedAt: null, suspended: false, revision }, data: { revision: { increment: 1 } } });
+      if (!locked.count) return false;
+      for (const [order, id] of exerciseIds.entries()) await tx.workoutExercise.update({ where: { id }, data: { order } });
+      return true;
+    });
+    if (!changed) return res.status(409).json({ error: "Workout changed on another device. Reload before reordering." });
+    res.json({ success: true, revision: revision + 1 });
   },
 );
 
@@ -2521,7 +2554,14 @@ app.delete("/api/account", async (req, res) => {
   await prisma.$transaction(async (tx) => {
     await tx.workout.deleteMany({ where: { userId: user.id } });
     await tx.workoutTemplate.deleteMany({ where: { userId: user.id } });
-    await tx.exercise.updateMany({ where: { ownerId: user.id }, data: { archived: true } });
+    const customExercises = await tx.exercise.findMany({ where: { ownerId: user.id }, select: { id: true, _count: { select: { workoutExercises: true, workoutTemplateExercises: true } } } });
+    for (const exercise of customExercises) {
+      if (exercise._count.workoutExercises || exercise._count.workoutTemplateExercises) {
+        await tx.exercise.update({ where: { id: exercise.id }, data: { ownerId: null, archived: true, name: `Deleted exercise ${exercise.id}`, description: null, category: null } });
+      } else {
+        await tx.exercise.delete({ where: { id: exercise.id } });
+      }
+    }
     await tx.user.delete({ where: { id: user.id } });
   });
   res.json({ success: true });
@@ -2534,7 +2574,7 @@ app.use((error: { code?: string; type?: string }, _req: Request, res: Response, 
   res.status(500).json({ error: "The request could not be completed", code: "INTERNAL_ERROR", requestId: res.locals.requestId });
 });
 
-app.listen(
+const httpServer = app.listen(
   PORT,
   "0.0.0.0",
   () => {
@@ -2543,3 +2583,17 @@ app.listen(
     );
   },
 );
+httpServer.requestTimeout = 30_000;
+httpServer.headersTimeout = 10_000;
+httpServer.keepAliveTimeout = 5_000;
+
+async function shutdown(signal: string) {
+  console.log(JSON.stringify({ event: "shutdown", signal }));
+  httpServer.close(async () => {
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));

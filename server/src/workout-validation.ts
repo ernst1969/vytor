@@ -41,7 +41,8 @@ export function validSets(sets: unknown, draft: boolean, weightUnit?: unknown, d
     }
     if (s.id !== undefined && !text(s.id, 100)) return false;
     if (s.completed !== undefined && typeof s.completed !== "boolean") return false;
-    return measurement(s.weight, weightUnit === "LBS" || weightUnit === undefined ? WORKOUT_LIMITS.weightKg * 2.2046226218 : WORKOUT_LIMITS.weightKg, false, draft) &&
+    return (s.id === undefined || text(s.id, 100)) && (s.dropSetOfId === undefined || s.dropSetOfId === null || text(s.dropSetOfId, 100)) &&
+      measurement(s.weight, weightUnit === "LBS" || weightUnit === undefined ? WORKOUT_LIMITS.weightKg * 2.2046226218 : WORKOUT_LIMITS.weightKg, false, draft) &&
       measurement(s.distance, distanceUnit === "MI" ? WORKOUT_LIMITS.distanceKm * 0.6213711922 : WORKOUT_LIMITS.distanceKm, false, draft) &&
       measurement(s.reps, WORKOUT_LIMITS.reps, true, draft) &&
       measurement(s.targetReps, WORKOUT_LIMITS.reps, true, true) &&
@@ -68,8 +69,9 @@ export function validWorkoutBody(path: string, method: string, body: unknown): b
       (e.previousSets === undefined || validSets(e.previousSets, false, "LBS", "KM"))) &&
       b.draft.exercises.reduce((n: number, e: any) => n + e.sets.length, 0) <= WORKOUT_LIMITS.setsTotal;
   }
-  if (/^\/workouts\/[^/]+\/exercises\/order$/.test(path) && method === "PATCH") return Array.isArray(b.exerciseIds) && b.exerciseIds.length <= WORKOUT_LIMITS.exercises && b.exerciseIds.every((id: unknown) => integer(id, 1)) && new Set(b.exerciseIds).size === b.exerciseIds.length;
-  if (/^\/workouts\/[^/]+\/exercises$/.test(path) && method === "POST") return integer(b.exerciseId, 1) && units(b);
+  if (/^\/workouts\/[^/]+\/exercises\/order$/.test(path) && method === "PATCH") return integer(b.revision) && Array.isArray(b.exerciseIds) && b.exerciseIds.length <= WORKOUT_LIMITS.exercises && b.exerciseIds.every((id: unknown) => integer(id, 1)) && new Set(b.exerciseIds).size === b.exerciseIds.length;
+  if (/^\/workouts\/[^/]+\/exercises$/.test(path) && method === "POST") return integer(b.revision) && integer(b.exerciseId, 1) && units(b);
+  if (/^\/workout-exercises\/[^/]+$/.test(path) && method === "DELETE") return integer(b.revision);
   if (/^\/workout-exercises\/[^/]+\/(settings|replace)$/.test(path) && method === "PATCH") {
     return units(b) && (b.restSeconds === undefined || integer(b.restSeconds, 0, 3600)) && (!path.endsWith("/replace") || (integer(b.exerciseId, 1) && integer(b.revision)));
   }

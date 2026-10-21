@@ -1,6 +1,9 @@
-import { draftSignature, recoverySource } from "@/utils/recovery";
+import { draftSignature, isLocalWorkoutSnapshot, recoverySource } from "@/utils/recovery";
 import { useAppTheme } from "@/context/theme-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  AppState,
+} from "react-native";
 import {
   createContext,
   useContext,
@@ -39,6 +42,7 @@ export type WorkoutSet = {
   completed: boolean;
   setType: WorkoutSetType;
   targetReps?: string;
+  dropSetOfId?: string;
 };
 
 export type PreviousWorkoutSet = {
@@ -76,6 +80,7 @@ type WorkoutContextValue = {
   setNotes: (notes: string) => void;
   syncStatus: string;
   reloadActiveWorkout: () => Promise<void>;
+  flushWorkoutDraft: () => Promise<void>;
   updateExerciseNotes: (id: string, notes: string) => void;
   setTimer: (seconds: number) => void;
   savePreset: () => Promise<void>;
@@ -242,6 +247,8 @@ function stringToInteger(value: string) {
 function normalizeExercise(
   exercise: WorkoutExercise,
 ): WorkoutExercise {
+  if (!exercise || typeof exercise !== "object" || !Array.isArray(exercise.sets)) throw new Error("Invalid workout exercise cache");
+  if (exercise.sets.some((set) => !set || typeof set !== "object" || !Number.isSafeInteger(set.setNumber) || set.setNumber < 1)) throw new Error("Invalid workout set cache");
   return {
     ...exercise,
 
@@ -255,8 +262,9 @@ function normalizeExercise(
     distanceUnit:
       exercise.distanceUnit ?? "KM",
 
-    sets: exercise.sets.map((set) => ({
+    sets: exercise.sets.map((set, index) => ({
       ...set,
+      id: typeof set.id === "string" ? set.id : `${exercise.id}-set-${set.setNumber || index + 1}`,
       weight: set.weight ?? "",
       reps: set.reps ?? "",
       distance: set.distance ?? "",
@@ -265,6 +273,7 @@ function normalizeExercise(
       completed:
         set.completed ?? false,
       setType: set.setType ?? "REGULAR",
+      dropSetOfId: typeof set.dropSetOfId === "string" ? set.dropSetOfId : undefined,
     })),
   };
 }
@@ -347,10 +356,50 @@ export function WorkoutProvider({
   const [syncStatus, setSyncStatus] = useState("Saved");
   const revision = useRef(0);
   const syncing = useRef(false);
-  const latestDraft = useRef({ exercises, restEndsAt });
+  const latestDraft = useRef({ exercises, restEndsAt, notes });
   const syncedDraft = useRef("");
-  useEffect(() => onSessionChange(() => { setHydrated(false); setStartedAt(null); setWorkoutId(null); setExercises([]); setNotes(""); revision.current = 0; syncedDraft.current = ""; setSessionVersion((value) => value + 1); }), []);
-  latestDraft.current = { exercises, restEndsAt };
+  const localWrites = useRef<Promise<void>>(Promise.resolve());
+  const storageGeneration = useRef(0);
+  const accountIdRef = useRef<string | null>(null);
+  accountIdRef.current = accountId;
+  useEffect(() => onSessionChange(() => {
+    const oldAccount = accountIdRef.current;
+    storageGeneration.current += 1;
+    localWrites.current = localWrites.current.catch(() => undefined).then(async () => {
+      if (oldAccount) await AsyncStorage.removeItem(`vytor_active_workout_${oldAccount}`);
+    });
+    setHydrated(false); setStartedAt(null); setWorkoutId(null); setExercises([]); setNotes(""); revision.current = 0; syncedDraft.current = ""; setSessionVersion((value) => value + 1);
+  }), []);
+  latestDraft.current = { exercises, restEndsAt, notes };
+
+  function queueLocalWrite(task: () => Promise<void>) {
+    localWrites.current = localWrites.current.catch(() => undefined).then(task);
+    return localWrites.current;
+  }
+
+  async function flushWorkoutDraft() {
+    await localWrites.current;
+    if (!hydrated || !workoutId || syncing.current || syncStatus.startsWith("Conflict")) return;
+    const current = latestDraft.current;
+    const signature = draftSignature(current);
+    if (signature === syncedDraft.current) return;
+    syncing.current = true;
+    const syncAccount = accountIdRef.current;
+    try {
+      setSyncStatus("Syncing…");
+      const result = await saveWorkoutDraft(workoutId, revision.current, { exercises: current.exercises, restEndsAt: current.restEndsAt }, current.notes);
+      if (syncAccount !== accountIdRef.current) return;
+      revision.current = result.revision;
+      syncedDraft.current = signature;
+      setSyncStatus("Saved");
+      if (syncAccount) await queueLocalWrite(() => AsyncStorage.mergeItem(`vytor_active_workout_${syncAccount}`, JSON.stringify({ revision: result.revision, syncedSignature: signature })));
+    } catch (error) {
+      setSyncStatus([404, 409].includes((error as { status?: number }).status ?? 0) ? "Conflict: reload required" : "Offline: saved on this device");
+      throw error;
+    } finally {
+      syncing.current = false;
+    }
+  }
 
   async function reloadActiveWorkout(preserveLocal = false) {
     const account = await AsyncStorage.getItem("vytor_user_id");
@@ -372,10 +421,15 @@ export function WorkoutProvider({
       });
     });
     let local = null;
-    try { local = snapshot ? JSON.parse(snapshot) : null; } catch { /* Corrupt cache is ignored. */ }
+    try {
+      const parsed = snapshot ? JSON.parse(snapshot) : null;
+      if (isLocalWorkoutSnapshot(parsed)) {
+        local = { ...parsed, exercises: (parsed.exercises as WorkoutExercise[]).map(normalizeExercise) };
+      }
+    } catch { /* Corrupt cache is ignored without mutating valid server state. */ }
     const source = recoverySource(active, local);
     if ((source === "local" || source === "conflict") && local) {
-      setExercises(local.exercises.map(normalizeExercise)); setNotes(local.notes ?? ""); setRestEndsAt(local.restEndsAt ?? null);
+      setExercises(local.exercises); setNotes(typeof local.notes === "string" ? local.notes : ""); setRestEndsAt(typeof local.restEndsAt === "number" && Number.isFinite(local.restEndsAt) ? local.restEndsAt : null);
       syncedDraft.current = local.syncedSignature ?? "";
       setSyncStatus(source === "conflict" ? "Conflict: reload required" : "Offline changes ready to sync");
       return;
@@ -398,30 +452,22 @@ export function WorkoutProvider({
 
   useEffect(() => {
     if (!hydrated || !workoutId) return;
-    let disposed = false;
-    async function sync() {
-      const signature = draftSignature({ ...latestDraft.current, notes });
-      if (disposed || syncing.current || syncStatus.startsWith("Conflict") || signature === syncedDraft.current) return;
-      syncing.current = true;
-      const syncAccount = accountId;
-      try {
-        setSyncStatus("Syncing…");
-        const result = await saveWorkoutDraft(workoutId!, revision.current, latestDraft.current, notes);
-        if (syncAccount !== await AsyncStorage.getItem("vytor_user_id")) return;
-        revision.current = result.revision;
-        syncedDraft.current = signature;
-        if (!disposed) setSyncStatus("Saved");
-        if (syncAccount && syncAccount === await AsyncStorage.getItem("vytor_user_id")) await AsyncStorage.mergeItem(`vytor_active_workout_${syncAccount}`, JSON.stringify({ revision: result.revision, syncedSignature: signature }));
-      } catch (error) {
-        if (!disposed) setSyncStatus([404, 409].includes((error as { status?: number }).status ?? 0) ? "Conflict: reload required" : "Offline: saved on this device");
-      } finally { syncing.current = false; }
-    }
-    const timeout = setTimeout(() => void sync(), 800);
-    const retry = setInterval(() => void sync(), 15000);
-    return () => { disposed = true; clearTimeout(timeout); clearInterval(retry); };
+    const sync = () => void flushWorkoutDraft().catch(() => undefined);
+    const timeout = setTimeout(sync, 800);
+    const retry = setInterval(sync, 15000);
+    return () => { clearTimeout(timeout); clearInterval(retry); };
   // The current draft changes initiate synchronization; retries handle reconnects.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exercises, restEndsAt, notes, hydrated, workoutId, syncStatus.startsWith("Conflict")]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") void flushWorkoutDraft().catch(() => undefined);
+    });
+    return () => subscription.remove();
+  // The listener must always flush the refs holding the newest draft.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, workoutId]);
 
   useEffect(() => {
     async function hydrate() {
@@ -438,8 +484,10 @@ export function WorkoutProvider({
         if (snapshot) {
           try {
             const data = JSON.parse(snapshot);
+            if (!isLocalWorkoutSnapshot(data)) throw new Error("Invalid workout cache");
+            const restoredExercises = (data.exercises as WorkoutExercise[]).map(normalizeExercise);
             setStartedAt(data.startedAt); setWorkoutId(data.workoutId);
-            setExercises(data.exercises.map(normalizeExercise)); setRestEndsAt(data.restEndsAt);
+            setExercises(restoredExercises); setRestEndsAt(typeof data.restEndsAt === "number" && Number.isFinite(data.restEndsAt) ? data.restEndsAt : null);
             setNotes(data.notes ?? ""); revision.current = data.revision ?? 0;
             setSyncStatus("Offline: saved on this device");
           } catch { /* Invalid cache is ignored. */ }
@@ -453,8 +501,10 @@ export function WorkoutProvider({
   useEffect(() => {
     if (!hydrated || !accountId) return;
     const key = `vytor_active_workout_${accountId}`;
-    if (!startedAt || !workoutId) { void AsyncStorage.removeItem(key); return; }
-    void AsyncStorage.setItem(key, JSON.stringify({ startedAt, workoutId, exercises, restEndsAt, notes, revision: revision.current, syncedSignature: syncedDraft.current }));
+    const generation = storageGeneration.current;
+    if (!startedAt || !workoutId) { void queueLocalWrite(async () => { if (generation === storageGeneration.current) await AsyncStorage.removeItem(key); }); return; }
+    const value = JSON.stringify({ startedAt, workoutId, exercises, restEndsAt, notes, revision: revision.current, syncedSignature: syncedDraft.current });
+    void queueLocalWrite(async () => { if (generation === storageGeneration.current) await AsyncStorage.setItem(key, value); });
   }, [exercises, hydrated, restEndsAt, startedAt, workoutId, notes, accountId]);
 
 
@@ -629,6 +679,8 @@ export function WorkoutProvider({
                 return {
                   setNumber:
                     set.setNumber,
+                  id: set.id,
+                  dropSetOfId: set.dropSetOfId,
                   weight:
                     values.weight,
                   reps:
@@ -717,7 +769,7 @@ export function WorkoutProvider({
       return {
         ...exercise,
         sets: exercise.sets
-          .filter((set) => set.id !== setId)
+          .filter((set) => set.id !== setId && set.dropSetOfId !== setId)
           .map((set, index) => ({ ...set, setNumber: index + 1 })),
       };
     }));
@@ -726,7 +778,11 @@ export function WorkoutProvider({
   function setSetType(exerciseId: string, setId: string, type: WorkoutSetType) {
     setExercises((current) => current.map((exercise) =>
       exercise.id === exerciseId
-        ? { ...exercise, sets: exercise.sets.map((set) => set.id === setId ? { ...set, setType: type } : set) }
+        ? { ...exercise, sets: exercise.sets.map((set, index) => {
+            if (set.id !== setId) return set;
+            const source = [...exercise.sets.slice(0, index)].reverse().find((candidate) => candidate.setType !== "DROP");
+            return { ...set, setType: type, dropSetOfId: type === "DROP" ? source?.id : undefined };
+          }) }
         : exercise,
     ));
   }
@@ -743,6 +799,7 @@ export function WorkoutProvider({
         id: `${exercise.id}-drop-${Date.now()}`,
         completed: false,
         setType: "DROP",
+        dropSetOfId: source.dropSetOfId ?? source.id,
       });
       return { ...exercise, sets: next.map((set, setIndex) => ({ ...set, setNumber: setIndex + 1 })) };
     }));
@@ -966,9 +1023,11 @@ export function WorkoutProvider({
       await addExerciseToWorkout(
         workoutId,
         normalized.exerciseId,
+        revision.current,
         normalized.weightUnit,
         normalized.distanceUnit,
       );
+    revision.current = databaseExercise.revision;
 
     const storedUserId =
       await AsyncStorage.getItem(
@@ -1016,7 +1075,10 @@ export function WorkoutProvider({
 
   async function deleteExercise(exerciseId: string) {
     const exercise = exercises.find((item) => item.id === exerciseId);
-    if (exercise?.workoutExerciseId) await deleteWorkoutExercise(exercise.workoutExerciseId);
+    if (exercise?.workoutExerciseId) {
+      const result = await deleteWorkoutExercise(exercise.workoutExerciseId, revision.current);
+      revision.current = result.revision;
+    }
     setExercises((current) => current.filter((item) => item.id !== exerciseId));
   }
 
@@ -1027,7 +1089,10 @@ export function WorkoutProvider({
     const reordered = [...exercises];
     const [moved] = reordered.splice(index, 1);
     reordered.splice(nextIndex, 0, moved!);
-    if (workoutId) await updateWorkoutExerciseOrder(workoutId, reordered.map((item) => item.workoutExerciseId!));
+    if (workoutId) {
+      const result = await updateWorkoutExerciseOrder(workoutId, reordered.map((item) => item.workoutExerciseId!), revision.current);
+      revision.current = result.revision;
+    }
     setExercises(reordered);
   }
 
@@ -1049,7 +1114,7 @@ export function WorkoutProvider({
   return (
     <WorkoutContext.Provider
       value={{
-        notes, setNotes, syncStatus, reloadActiveWorkout, updateExerciseNotes, setTimer, savePreset,
+        notes, setNotes, syncStatus, reloadActiveWorkout, flushWorkoutDraft, updateExerciseNotes, setTimer, savePreset,
         startedAt,
         isActive:
           startedAt !== null,

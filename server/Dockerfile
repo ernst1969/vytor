@@ -11,14 +11,17 @@ COPY server/tsconfig*.json ./
 COPY server/src ./src
 RUN npm run build
 
+FROM build AS migration
+USER node
+CMD ["npm", "run", "db:deploy"]
+
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY server/package.json server/package-lock.json ./
+RUN npm ci --omit=dev --omit=optional --ignore-scripts && npm cache clean --force
+COPY --from=build --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=node:node /app/dist ./dist
-COPY --from=build --chown=node:node /app/prisma ./prisma
-COPY --from=build --chown=node:node /app/prisma.config.ts /app/package.json ./
-# Prisma CLI retained for explicit one-off migration jobs, never run on startup.
 USER node
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

@@ -9,6 +9,7 @@ x-api: &api
   build:
     context: .
     dockerfile: server/Dockerfile
+    target: runtime
     args:
       NODE_IMAGE: ${NODE_IMAGE:?Set NODE_IMAGE}
   environment:
@@ -16,10 +17,15 @@ x-api: &api
     PORT: "3000"
     TRUSTED_PROXY_IP: ${CADDY_PROXY_IP:-172.30.50.2}
     DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+    REGISTRATION_INVITE_CODE_SHA256: ${REGISTRATION_INVITE_CODE_SHA256:-}
+    WEB_ORIGIN: ${WEB_ORIGIN:-}
   networks: [database, edge]
   read_only: true
   tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
   cap_drop: [ALL]
+  mem_limit: 512m
+  cpus: 1.0
+  pids_limit: 200
   security_opt: [no-new-privileges:true]
   logging: *logging
 services:
@@ -29,10 +35,17 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      API_DB_PASSWORD: ${API_DB_PASSWORD:?Set API_DB_PASSWORD}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    volumes: [postgres_data:/var/lib/postgresql]
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./deployment/postgres/init-roles.sh:/docker-entrypoint-initdb.d/20-vytor-roles.sh:ro
     networks: [database]
     restart: unless-stopped
+    mem_limit: 1536m
+    cpus: 1.5
+    pids_limit: 300
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 10s
@@ -54,7 +67,17 @@ services:
       start_period: 30s
   migrate:
     <<: *api
+    image: vytor-migrate:${VYTOR_RELEASE:?Set VYTOR_RELEASE}
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: migration
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?Set NODE_IMAGE}
     profiles: [tools]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL}
     command: [npm, run, db:deploy]
     depends_on:
       db:
@@ -73,6 +96,9 @@ services:
       edge:
         ipv4_address: ${CADDY_PROXY_IP:-172.30.50.2}
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
     depends_on:
       api:
         condition: service_healthy

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
+import pg from "pg";
 const bin = process.env.PG_TEST_BIN ?? "/usr/lib/postgresql/18/bin";
 const probe = createServer();
 await new Promise((resolve, reject) => { probe.once("error", reject); probe.listen(0, "127.0.0.1", resolve); });
@@ -33,6 +34,51 @@ try {
   await run(join(bin, "createdb"), ["-h", work, "-p", String(port), "-U", "vytor_test", "vytor_security_test"]);
   const url = `postgresql://vytor_test:${secret}@127.0.0.1:${port}/vytor_security_test`;
   await run(process.execPath, ["scripts/integration.mjs"], { ...process.env, TEST_DATABASE_URL: url, DATABASE_URL: url, NODE_ENV: "test", TRUSTED_PROXY_IP: "" });
+
+  // Prove migrations work without the cluster administrator and the API role cannot perform DDL.
+  await run(join(bin, "createdb"), ["-h", work, "-p", String(port), "-U", "vytor_test", "vytor_role_test"]);
+  const apiSecret = randomBytes(24).toString("hex");
+  const migrationSecret = randomBytes(24).toString("hex");
+  const roleEnv = { ...process.env, PGHOST: work, PGPORT: String(port), POSTGRES_USER: "vytor_test", POSTGRES_DB: "vytor_role_test", API_DB_PASSWORD: apiSecret, MIGRATION_DB_PASSWORD: migrationSecret };
+  await run("/bin/bash", ["../deployment/postgres/init-roles.sh"], roleEnv);
+  const migrationUrl = `postgresql://vytor_migrator:${migrationSecret}@127.0.0.1:${port}/vytor_role_test`;
+  const apiUrl = `postgresql://vytor_api:${apiSecret}@127.0.0.1:${port}/vytor_role_test`;
+  await run(process.execPath, ["node_modules/prisma/build/index.js", "migrate", "deploy"], { ...process.env, DATABASE_URL: migrationUrl });
+  const runtime = new pg.Client({ connectionString: apiUrl });
+  await runtime.connect();
+  const inserted = await runtime.query('INSERT INTO "User" ("username") VALUES ($1) RETURNING "id"', ["least_privilege_probe"]);
+  await runtime.query('DELETE FROM "User" WHERE "id" = $1', [inserted.rows[0].id]);
+  for (const statement of ['CREATE TABLE runtime_must_not_create (id integer)', 'CREATE DATABASE runtime_must_not_create']) {
+    await runtime.query(statement).then(
+      () => { throw new Error(`Runtime role unexpectedly executed: ${statement}`); },
+      (error) => { if (error.code !== "42501") throw error; },
+    );
+  }
+  await runtime.end();
+  const admin = new pg.Client({ connectionString: `postgresql://vytor_test:${secret}@127.0.0.1:${port}/vytor_role_test` });
+  await admin.connect();
+  const flags = await admin.query("SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls FROM pg_roles WHERE rolname IN ('vytor_api', 'vytor_migrator') ORDER BY rolname");
+  if (flags.rows.length !== 2 || flags.rows.some((role) => role.rolsuper || role.rolcreatedb || role.rolcreaterole || role.rolreplication || role.rolbypassrls)) throw new Error("Database application roles have administrative privileges");
+  await admin.query('INSERT INTO "User" ("username") VALUES ($1)', ["restore_probe"]);
+  await admin.end();
+  console.log("PASS: isolated PostgreSQL migration/runtime least-privilege roles");
+
+  const archive = join(work, "database.dump");
+  await run(join(bin, "pg_dump"), ["-h", work, "-p", String(port), "-U", "vytor_test", "-d", "vytor_role_test", "--format=custom", "--no-owner", "--no-acl", `--file=${archive}`]);
+  await run(join(bin, "pg_restore"), ["--list", archive]);
+  await run(join(bin, "createdb"), ["-h", work, "-p", String(port), "-U", "vytor_test", "vytor_restore_test"]);
+  await run(join(bin, "pg_restore"), ["-h", work, "-p", String(port), "-U", "vytor_test", "-d", "vytor_restore_test", "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl", archive]);
+  await run("/bin/bash", ["../deployment/postgres/init-roles.sh"], { ...roleEnv, POSTGRES_DB: "vytor_restore_test" });
+  const restored = new pg.Client({ connectionString: `postgresql://vytor_api:${apiSecret}@127.0.0.1:${port}/vytor_restore_test` });
+  await restored.connect();
+  const restoredProbe = await restored.query('SELECT "id" FROM "User" WHERE "username" = $1', ["restore_probe"]);
+  if (restoredProbe.rowCount !== 1) throw new Error("Restored data probe is missing");
+  const sequenceProbe = await restored.query('INSERT INTO "User" ("username") VALUES ($1) RETURNING "id"', ["restore_sequence_probe"]);
+  if (sequenceProbe.rows[0].id <= restoredProbe.rows[0].id) throw new Error("Restored sequence did not advance");
+  const migrationProbe = await restored.query('SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE "finished_at" IS NOT NULL');
+  if (migrationProbe.rows[0].count !== 12) throw new Error("Restored migration history is incomplete");
+  await restored.end();
+  console.log("PASS: PostgreSQL custom-format dump/restore, data, grants, sequences and migration history");
 } finally {
   if (started) await run(join(bin, "pg_ctl"), ["-D", data, "-m", "immediate", "-w", "stop"]);
   await rm(work, { recursive: true, force: true });

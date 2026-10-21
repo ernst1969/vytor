@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { Request, Response, NextFunction } from "express";
 
@@ -26,6 +26,13 @@ export function ipBucket(ip: string): string {
 export function proxyTrust(address?: string) {
   if (address && canonicalIp(address) === "unknown") throw new Error("TRUSTED_PROXY_IP must be one literal Caddy IP address");
   return (ip: string, hop: number) => Boolean(address) && hop === 0 && canonicalIp(ip) === canonicalIp(address!);
+}
+
+export function registrationAllowed(nodeEnv: string | undefined, expectedHash: string | undefined, suppliedCode: unknown) {
+  if (nodeEnv !== "production") return true;
+  if (!expectedHash || !/^[a-f0-9]{64}$/i.test(expectedHash) || typeof suppliedCode !== "string" || suppliedCode.length > 256) return false;
+  const actual = createHash("sha256").update(suppliedCode).digest();
+  return timingSafeEqual(actual, Buffer.from(expectedHash, "hex"));
 }
 
 export const RATE_LIMITS = {

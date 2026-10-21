@@ -1,14 +1,17 @@
 # Vytor: Vorbereitung und späterer Hetzner-Umzug
 
-Stand: 17.10.2026. **Nur vorbereitet. Kein VPS, DNS, Build oder Deployment angelegt;
+Stand: 21.10.2026. **Nur vorbereitet. Kein VPS, DNS, Build oder Deployment angelegt;
 keine Daten migriert. Alle folgenden Betriebsbefehle sind erst später manuell auszuführen.**
+Das verbindliche aktuelle Ablaufdokument ist [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md);
+bei Widersprüchen gilt dieses. Der vorliegende Hintergrundtext bleibt als Detailreferenz erhalten.
 Vor Internetfreigabe die umgesetzten Schutzmaßnahmen und verbleibenden Risiken in
 [HETZNER_SECURITY_REVIEW.md](HETZNER_SECURITY_REVIEW.md) abnehmen und die reale Caddy-IP-Kette testen. Der vorbereitete Stand ist keine Freigabe für öffentlichen Betrieb.
 
 ## Tatsächliche Architektur und Dateien
 
 Expo SDK 57 / React Native 0.86 / Expo Router in `src/app`, npm mit zwei Lockfiles.
-Client `src/services/api.ts` nutzt `EXPO_PUBLIC_API_URL` und Bearer-Token aus AsyncStorage.
+Client `src/services/api.ts` nutzt `EXPO_PUBLIC_API_URL`; Bearer-Tokens liegen nativ in SecureStore
+und im Web nur im tabgebundenen Session Storage. Nicht geheime Drafts/User-ID bleiben in AsyncStorage.
 Backend: Express 5 + TypeScript, `server/src/index.ts`; PostgreSQL via `pg`, Prisma 7
 und `@prisma/adapter-pg`. Prisma-Konfiguration in `server/prisma.config.ts`, Schema und
 versionierte SQL-Migrationen in `server/prisma/`. Passwörter bcrypt, Sessions in PostgreSQL.
@@ -136,8 +139,8 @@ nano .env.production
 ```
 
 Passwortausgabe nur interaktiv in eigenem Terminal, nicht in Tickets/Logs kopieren.
-`POSTGRES_PASSWORD` und `DATABASE_URL=postgresql://vytor:PASSWORD@db:5432/vytor`
-setzen (64 Hexzeichen vermeiden URL-Encoding-Fallen). Domain, ACME-Mail, Release-Commit
+`POSTGRES_PASSWORD`, `API_DB_PASSWORD`, `MIGRATION_DB_PASSWORD` sowie die URLs für
+`vytor_api` und `vytor_migrator` setzen (64 Hexzeichen vermeiden URL-Encoding-Fallen). Domain, ACME-Mail, Release-Commit
 setzen; keine `.example`-Domain verwenden. Keine Secrets committen.
 `sudo` muss für Backup/Compose dieselbe Datei lesen können.
 
@@ -158,7 +161,8 @@ sudo bash deployment/compose.sh exec -T db sh -c 'psql -X -U "$POSTGRES_USER" -d
 `config` ohne `--quiet` würde Secrets ausgeben. DB hat ein persistentes Volume;
 Caddy-Zertifikate ebenfalls. Datenbank-Initialvariablen gelten nur bei leerem Volume,
 Passwortrotation benötigt später SQL plus angepasste API-Konfiguration.
-Initialbenutzer ist derzeit zugleich API-Rolle: Restrisiko im Security-Bericht.
+Der Initialbenutzer ist nur Administrator. Migration und API verwenden getrennte, nicht administrative Rollen;
+das Rollen-/Grant-Skript ist auf frischem PostgreSQL 18.6 einschließlich DDL-Denials getestet.
 API läuft Non-root/read-only ohne Capabilities; db benötigt Image-Initialisierungsrechte,
 Caddy Schreibrechte für Zertifikate. Keine privilegierten Container, kein Docker-Socket im Container.
 

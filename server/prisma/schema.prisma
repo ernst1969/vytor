@@ -184,11 +184,15 @@ model WorkoutSet {
   reps             Int?
   durationSeconds  Int?
   setType          WorkoutSetType @default(REGULAR)
+  dropSetOfId      Int?
 
   workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+  dropSetOf        WorkoutSet? @relation("DropSetOrigin", fields: [dropSetOfId], references: [id], onDelete: SetNull)
+  dropSets         WorkoutSet[] @relation("DropSetOrigin")
 
   @@unique([workoutExerciseId, setNumber])
   @@index([workoutExerciseId])
+  @@index([dropSetOfId])
 }
 
 model FriendRequest {

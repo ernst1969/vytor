@@ -24,6 +24,7 @@ export default function CreateUserScreen() {
   const [password, setPassword] = useState("");
 
   const [username, setUsername] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleCreateUser() {
@@ -40,7 +41,7 @@ export default function CreateUserScreen() {
     try {
       setLoading(true);
 
-const user = await createUser(trimmedUsername, password);
+const user = await createUser(trimmedUsername, password, inviteCode);
 
       await AsyncStorage.setItem("vytor_user_id", String(user.id));
 
@@ -88,6 +89,18 @@ const user = await createUser(trimmedUsername, password);
   style={styles.input}
   editable={!loading}
 />
+
+      <TextInput
+        value={inviteCode}
+        onChangeText={setInviteCode}
+        placeholder="Private beta invitation"
+        placeholderTextColor={Colors.textMuted}
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+        style={styles.input}
+        editable={!loading}
+      />
 
       <Pressable
         onPress={handleCreateUser}

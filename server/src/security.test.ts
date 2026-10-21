@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
 import express from "express";
-import { accountPasswordLimits, authLimits, canonicalIp, ipBucket, MemoryLimiter, proxyTrust, safeErrorRecord, RATE_LIMITS } from "./security.js";
+import { accountPasswordLimits, authLimits, canonicalIp, ipBucket, MemoryLimiter, proxyTrust, registrationAllowed, safeErrorRecord, RATE_LIMITS } from "./security.js";
+import { createHash } from "node:crypto";
 
 test("IP normalization groups mapped IPv4 and IPv6 privacy addresses", () => {
   assert.equal(canonicalIp("::ffff:192.0.2.1"), "192.0.2.1");
@@ -27,6 +28,13 @@ test("logging drops messages, stack, database URL, passwords and tokens", () => 
   const result = JSON.stringify(safeErrorRecord("test", { code: "P2002", message: "postgresql://secret password token", stack: "secret", meta: { token: "secret" } }, "request-123"));
   assert.equal(result.includes("secret"), false);
   assert.deepEqual(JSON.parse(result), { event: "test", code: "P2002", requestId: "request-123" });
+});
+test("production registration is closed unless the configured invitation matches", () => {
+  const hash = createHash("sha256").update("private-beta-code").digest("hex");
+  assert.equal(registrationAllowed("production", undefined, "private-beta-code"), false);
+  assert.equal(registrationAllowed("production", hash, "wrong"), false);
+  assert.equal(registrationAllowed("production", hash, "private-beta-code"), true);
+  assert.equal(registrationAllowed("test", undefined, undefined), true);
 });
 async function harness(trusted?: string) {
   const app = express();

@@ -2,6 +2,33 @@
 
 Alle wesentlichen Änderungen an Vytor werden in dieser Datei dokumentiert.
 
+## 2026-10-21 – Security Audit und Deployment Readiness
+
+### Behobene Probleme
+
+- **Workout-Revisionslücke (hoch):** Add/Delete/Reorder prüften die Revision nicht; Reorder schrieb mehrere Zeilen ohne atomaren Versionswechsel. Alle strukturellen Operationen verwenden nun ein bedingtes Workout-Update in derselben Transaktion, erhöhen die Revision und liefern bei stale Clients 409. Betroffen: Serverrouten, Client-API und `WorkoutProvider`. PostgreSQL-Race-/Stale-Regression ergänzt.
+- **Draft-Verlustfenster (hoch):** Fire-and-forget-AsyncStorage-Writes konnten ältere Snapshots zuletzt schreiben; Draft-Wechsel wartete nicht auf Debounce/Sync. Lokale Writes sind serialisiert, Sessionwechsel invalidiert ausstehende Writes, App-Hintergrund und Draft-Wechsel flushen. Korrupte Caches (`sets:[null]`, falsche Typen/IDs) werden vor partieller Zustandsänderung verworfen.
+- **Drop-Set-Ancestry (mittel):** Drop-Sets hingen nur von Arraypositionen ab. `WorkoutSet.dropSetOfId` mit FK, Client-IDs und Finish-Verknüpfung ergänzt. Migration `20261021120000_stable_drop_sets` ordnet historische Drops dem nächsten vorherigen Nicht-Drop-Satz zu.
+- **Native Sessionablage (mittel):** Token von AsyncStorage zu Expo SecureStore 57.0.4 migriert; Write/Read-Verifikation vor Legacy-Löschung, serialisierte Migration/Logout, kein nativer Klartext-Fallback. Web verwendet tabgebundenes `sessionStorage`. Neuer nativer Build und Geräteabnahme bleiben erforderlich.
+- **DB-Superuser (hoch):** Admin-, Migrations- und DML-only-API-Rolle getrennt. Init-/Grant-Skript, Compose-URLs und getrennte Docker-Targets ergänzt. PostgreSQL 18.6 bestätigte Migration ohne Admin sowie verweigerte API-DDL/DB-Erstellung.
+- **Private Beta (mittel):** Produktion verweigert Registrierung ohne gültigen SHA-256-geprüften Invite-Code. Klartextcode bleibt außerhalb Serverkonfiguration/Repository.
+- **Privacy/Social (mittel):** Nicht-Freunde erhalten keine exakten Workout-Zeitpunkte. Accept/Reject verwendet atomare Pending-Transitions. Account-Löschung entfernt freie Custom Exercises und anonymisiert referenzierte. Reject/Withdraw/Remove/Race und Fremdreferenz sind integriert getestet.
+- **Username-Race (mittel):** Funktionaler Unique-Index auf `lower(username)`; Migration `20261021121000_case_insensitive_usernames` verweigert kollidierende Bestandsdaten statt sie destruktiv zu ändern.
+- **Runtime-Härtung:** Prisma auf 7.10.1 aktualisiert (Backend Production Audit: 0), Prisma-CLI aus dem API-Runtime-Target entfernt, Graceful Shutdown/HTTP-Timeouts, Caddy-Healthchecks und Compose-Ressourcenlimits ergänzt.
+
+### Verifikation
+
+- PASS: Lint, beide Typechecks, Backend-Build, 17 Backend- und 16 UI-Tests, Expo Doctor 21/21.
+- PASS: isolierter PostgreSQL-18.6-Test mit zwölf Migrationen, Mehrkonto-HTTP/Races, Rollen, Custom-Dump/Restore, Daten, Sequenzen, Grants und Migrationshistorie.
+- PASS: Android/iOS/Web-Export mit expliziter HTTPS-URL; lokaler HTTP-Release-Export wurde erwartungsgemäß abgewiesen.
+- BLOCKED: echter Dockerbuild/Compose/Caddy/TLS/Firewall (Docker/VPS fehlen), Restic-Offsite-Kette, EAS/native Geräte und rechtliche Betreiberfreigabe.
+- Dependency-Risiko: Root-Audit meldet 29 Expo/Metro-Transitivbefunde; vorgeschlagene npm-Fixes sind inkompatible Expo-Downgrades/SDK-58-Schritte. Kein ungeprüftes Major-Upgrade durchgeführt.
+
+### Dokumentation und Kompatibilität
+
+- Neu: `TECH_STACK.md`, `DEPLOYMENT_READINESS.md`, `DEPLOYMENT_RUNBOOK.md`, `ROLLBACK_AND_RECOVERY.md`, `PRIVACY_TECHNICAL.md`, `CODEX_REVIEW_HANDOFF.md`; README, Release-Checkliste und Hetzner-Dokumente aktualisiert.
+- Schemaänderungen sind additiv; die Username-Migration kann vorab wegen Bestandskollisionen stoppen. SecureStore benötigt neue native Builds. Produktionsvariablen benötigen getrennte DB-Credentials und optionalen Invite-Hash.
+
 ## 2026-10-16 – Home-Redesign, Rest-Day-Streak und Settings
 
 ### Added

@@ -28,7 +28,7 @@ export default function WorkoutSetupScreen() {
   const { colors: Colors } = useAppTheme();
   const styles = createStyles(Colors);
   const router = useRouter();
-  const { reloadActiveWorkout, startWorkout, preferredWeightUnit, preferredDistanceUnit } = useWorkout();
+  const { reloadActiveWorkout, flushWorkoutDraft, startWorkout, preferredWeightUnit, preferredDistanceUnit } = useWorkout();
 
   const [templates, setTemplates] = useState<
     WorkoutTemplate[]
@@ -245,7 +245,7 @@ export default function WorkoutSetupScreen() {
         </ScrollView>
       </View>
       <ConfirmDialog visible={deleteTarget !== null} busy={processing} title="Delete template?" message={`Delete “${deleteTarget?.name ?? ""}”? Existing workouts are preserved.`} onCancel={() => setDeleteTarget(null)} onConfirm={() => void confirmDelete()} confirmLabel="Delete" />
-      <ConfirmDialog visible={resumeTarget !== null} busy={processing} title="Resume this workout?" message="Your currently active workout will be paused and retained. Unsynced edits on another device must be synchronized before switching." onCancel={() => setResumeTarget(null)} onConfirm={() => { if (!resumeTarget || processing) return; setProcessing(true); void request(`/workouts/${resumeTarget}/resume`, "POST").then(reloadActiveWorkout).then(() => router.replace("/")).catch((cause) => setError(cause.message)).finally(() => { setProcessing(false); setResumeTarget(null); }); }} confirmLabel="Resume" />
+      <ConfirmDialog visible={resumeTarget !== null} busy={processing} title="Resume this workout?" message="Your currently active workout will be saved before switching. A sync conflict must be resolved first." onCancel={() => setResumeTarget(null)} onConfirm={() => { if (!resumeTarget || processing) return; setProcessing(true); void flushWorkoutDraft().then(() => request(`/workouts/${resumeTarget}/resume`, "POST")).then(reloadActiveWorkout).then(() => router.replace("/")).catch((cause) => setError(cause.message)).finally(() => { setProcessing(false); setResumeTarget(null); }); }} confirmLabel="Resume" />
     </SafeAreaView>
   );
 }

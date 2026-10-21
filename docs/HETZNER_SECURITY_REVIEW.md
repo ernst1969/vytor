@@ -1,6 +1,7 @@
 # Sicherheitsprüfung und Hardening für privaten Internetbetrieb
 
-Stand: 17.10.2026. Express 5 / Prisma 7 / PostgreSQL; eine Backend-Instanz,
+Stand: 21.10.2026. Express 5 / Prisma 7.10.1 / PostgreSQL; eine Backend-Instanz.
+Aktueller Gate-Status und Nachweise: [DEPLOYMENT_READINESS.md](DEPLOYMENT_READINESS.md).
 5–15 bekannte Nutzer. Kein Deployment, keine produktiven Secrets/Daten geändert,
 keine UI-, Schema- oder Client-Session-Migration. Statische Prüfung plus echte HTTP-
 und PostgreSQL-Integrationstests auf separatem temporärem Testcluster; kein Penetrationstest.
@@ -13,15 +14,15 @@ und PostgreSQL-Integrationstests auf separatem temporärem Testcluster; kein Pen
 | Hoch | Eigene XP durch beliebige Sätze/Abschlussmassen manipulierbar | **Teilweise behoben** | Begrenzte Sätze/Messwerte, transaktionales Minuten-/Stundenlimit, einmalige Vergabe auch bei Parallelaufrufen. Erfundenes Training innerhalb der Grenzen bleibt möglich. |
 | Mittel | Unvollständige Eingabe-/Mengenvalidierung | **Behoben** für Workout-Schreibwege | Gemeinsame Validierung für Erstellen, Draft, Finish, Hinzufügen, Ersetzen, Settings, Sortieren; Template-Mengen begrenzt. Keine Aussage, dass alle übrigen API-Validierungen vollständig vereinheitlicht sind. |
 | Mittel | Öffentliche Profile inklusive Trainingszeitpunkten | **Offen** | Derzeit für alle angemeldeten Nutzer sichtbar; konkrete Vorschläge unten. Keine unautorisierte Änderung der Produktsichtbarkeit. |
-| Mittel | Token in AsyncStorage | **Offen** | SecureStore-Migrationskonzept unten; kein Paket und kein neuer nativer Build installiert. |
+| Mittel | Token in AsyncStorage | **Code behoben / Gerätetest offen** | Native SecureStore-Migration umgesetzt; Web tabgebunden. Neuer nativer Build und Reinstall-/Logout-Race-Test fehlen. |
 | Mittel | Rohe Datenbank-/Prisma-Fehler im Log | **Behoben** | Alle API-Fehlerlogs verwenden Allowlist-JSON: statischer Ereignisname, Fehlercode, optional generierte Request-ID. Keine message/stack/meta/SQL/URL/Request-Bodies. |
-| Mittel | API nutzt PostgreSQL-Initialbenutzer/Superuser | **Offen** | Least-Privilege-Rollentrennung benötigt eigene DB-Rechteumstellung und Tests; vor öffentlichem Launch umsetzen. Für privaten Betrieb ausdrücklich bekanntes Restrisiko. |
+| Mittel | API nutzt PostgreSQL-Initialbenutzer/Superuser | **Behoben** | Admin/Migrator/API getrennt; Migration und DML/DDL-Denials auf PostgreSQL 18.6 getestet. Compose-Test auf Docker bleibt offen. |
 | Mittel | Account-Löschung: archivierte Übungen und SetNull-Referenzen | **Teilweise behoben** | Normale Löschung samt Sessions/Friends/XP/Feedback auf Test-DB verifiziert, Passwortprüfung limitiert. Datenschutz-/Anonymisierungsentscheidung und Sonderfälle mit fremden Template-Referenzen offen. |
 | Niedrig/Mittel | Gleichzeitige Freundschaftsaktionen | **Offen** | Teilnehmerprüfungen bleiben erhalten und werden getestet; Annahme/Ablehnung noch nicht als bedingtes atomisches Update implementiert. |
 | Niedrig | Case-insensitive Username-Prüfung, case-sensitive DB-Unique | **Offen** | Account-Limits normalisieren Schreibweise. DB-Eindeutigkeit benötigt Kollisionsanalyse und separate Datenmigration. |
 
 Die früheren Konfigurationskorrekturen bleiben bestehen: HTTPS-API für Release-Client,
-Produktions-CORS ohne Browser-Origins, keine Express-Kennung, verpflichtende Produktions-DB,
+Produktions-CORS standardmäßig ohne Browser-Origin oder optional exakt ein HTTPS-`WEB_ORIGIN`, keine Express-Kennung, verpflichtende Produktions-DB,
 Readiness ohne DB-Details. Kein ungeschützter fremder XP-Schreibweg gefunden; Details privater
 Workouts verlangen Eigentümer oder akzeptierte Freundschaft. Passwörter bcrypt (Faktor 12),
 Session-Tokens zufällig (32 Bytes), in DB nur SHA-256-Hash, 30 Tage Ablauf, Logout/Passwortwechsel
@@ -118,7 +119,7 @@ liefern zusätzlich `code` und `requestId`. Bestehende fachliche Fehlertexte ble
 kompatibel. Interne Logs enthalten Ereignis und allowlist-geprüften Fehlercode; globale Fehler
 zusätzlich Request-ID. Kein komplettes Error-Objekt, Token, Passwort, Header oder DB-URL.
 
-## Konkrete Datenschutzvorschläge – noch nicht umgesetzt
+## Verbleibende Datenschutz- und Betreiberentscheidungen
 
 1. **Profile:** Basisdaten (Username, Anzeigename, Bild, XP/Rang) bewusst als im privaten
    Teilnehmerkreis sichtbar beschreiben. Exakte fremde Trainingszeitpunkte nur Eigentümer
@@ -136,7 +137,7 @@ zusätzlich Request-ID. Kein komplettes Error-Objekt, Token, Passwort, Header od
    bewirken; Löschjournal/Abgleich und Informationspflichten separat festlegen. Backup-Kopien
    nicht ad hoc verändern. Private Teilnehmer über die aktuelle Sichtbarkeit informieren.
 
-## SecureStore-Migrationskonzept für Expo SDK 57 – noch nicht umgesetzt
+## SecureStore-Migration für Expo SDK 57 – implementiert, native Abnahme offen
 
 Versionierte [Expo-Dokumentation](https://docs.expo.dev/versions/v57.0.0/sdk/securestore/)
 geprüft (SDK 57, Paketempfehlung dort ~57.0.4). Bei Umsetzung `npx expo install expo-secure-store`
@@ -196,7 +197,7 @@ Echte Android-/Mehrbenutzertests sowie externe Backups/Alarmierung bleiben Betri
 
 Für privaten Betrieb sind die unmittelbaren Auth-/Workout-Angriffsmöglichkeiten deutlich
 reduziert. Verbleibende Risiken oben bewusst abnehmen; insbesondere öffentliche Profilzeiten,
-Geräte-Token-Schutz, DB-Superuser und erfundene gültige Trainingsdaten. Keine öffentliche
+native SecureStore-Geräteabnahme, externe Infrastruktur und erfundene gültige Trainingsdaten. Keine öffentliche
 Launch-Freigabe und keine Zusage vollständigen Schutzes.
 
 Quellen: [Express Proxy-Trust](https://expressjs.com/en/guide/behind-proxies/),

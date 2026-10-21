@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { clearSessionCredentials, getSessionToken, storeSessionCredentials } from "@/services/session-store";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 if (!__DEV__) {
@@ -10,14 +11,13 @@ if (!__DEV__) {
   if (!valid) throw new Error("EXPO_PUBLIC_API_URL must be an explicit HTTPS API URL without credentials, query or fragment for release builds.");
 }
 const API_URL = (configuredApiUrl || "http://localhost:3000").replace(/\/+$/, "");
-const SESSION_TOKEN_KEY = "vytor_session_token";
 const sessionListeners = new Set<() => void>();
 export function onSessionChange(listener: () => void) { sessionListeners.add(listener); return () => { sessionListeners.delete(listener); }; }
 function notifySession() { for (const listener of sessionListeners) listener(); }
 
 
 async function fetch(input: string, init: RequestInit = {}) {
-  const token = await AsyncStorage.getItem(SESSION_TOKEN_KEY);
+  const token = await getSessionToken();
   const headers = new Headers(init.headers);
 
   if (token) {
@@ -26,16 +26,19 @@ async function fetch(input: string, init: RequestInit = {}) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  try { return await globalThis.fetch(input, { ...init, headers, signal: init.signal ?? controller.signal }); }
+  try {
+    const response = await globalThis.fetch(input, { ...init, headers, signal: init.signal ?? controller.signal });
+    if (token && response.status === 401) {
+      await clearSessionCredentials();
+      notifySession();
+    }
+    return response;
+  }
   finally { clearTimeout(timeout); }
 }
 
 async function storeSession(data: { id: number; token?: string }) {
-  await AsyncStorage.setItem("vytor_user_id", String(data.id));
-
-  if (data.token) {
-    await AsyncStorage.setItem(SESSION_TOKEN_KEY, data.token);
-  }
+  await storeSessionCredentials(data.id, data.token);
   notifySession();
 }
 
@@ -88,6 +91,7 @@ export async function checkBackend() {
 export async function createUser(
   username: string,
   password: string,
+  inviteCode?: string,
 ) {
   const response = await fetch(`${API_URL}/api/users`, {
     method: "POST",
@@ -97,6 +101,7 @@ export async function createUser(
     body: JSON.stringify({
       username,
       password,
+      inviteCode: inviteCode?.trim() || undefined,
     }),
   });
 
@@ -148,7 +153,8 @@ export async function logoutUser() {
   } finally {
     const userId = await AsyncStorage.getItem("vytor_user_id");
     if (userId) await AsyncStorage.removeItem(`vytor_active_workout_${userId}`);
-    await AsyncStorage.multiRemove(["vytor_user_id", SESSION_TOKEN_KEY, "vytor_active_workout"]);
+    await clearSessionCredentials();
+    await AsyncStorage.removeItem("vytor_active_workout");
     notifySession();
   }
 }
@@ -287,6 +293,8 @@ export async function finishWorkout(
       distance?: number | null;
       durationSeconds?: number | null;
       setType?: WorkoutSetType;
+      id?: string;
+      dropSetOfId?: string;
     }[];
   }[],
   revision: number,
@@ -319,6 +327,7 @@ export async function finishWorkout(
 export async function addExerciseToWorkout(
   workoutId: number,
   exerciseId: number,
+  revision: number,
   weightUnit: WeightUnit = "KG",
   distanceUnit: DistanceUnit = "KM",
 ) {
@@ -333,17 +342,14 @@ export async function addExerciseToWorkout(
         exerciseId,
         weightUnit,
         distanceUnit,
+        revision,
       }),
     },
   );
 
   const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(
-      data.error || `Backend returned ${response.status}`,
-    );
-  }
+  if (!response.ok) throw Object.assign(new Error(data.error || `Backend returned ${response.status}`), { status: response.status });
 
   return data;
 }
@@ -530,7 +536,7 @@ export async function rejectFriendRequest(
 export async function cancelFriendRequest(requestId: number) {
   const response = await fetch(`${API_URL}/api/friends/requests/${requestId}`, { method: "DELETE" });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(data.error || `Backend returned ${response.status}`), { status: response.status });
   return data;
 }
 
@@ -601,23 +607,26 @@ export async function updateWorkoutExerciseSettings(
   return data;
 }
 
-export async function deleteWorkoutExercise(workoutExerciseId: number) {
+export async function deleteWorkoutExercise(workoutExerciseId: number, revision: number) {
   const response = await fetch(`${API_URL}/api/workout-exercises/${workoutExerciseId}`, {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ revision }),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(data.error || `Backend returned ${response.status}`), { status: response.status });
   return data;
 }
 
 export async function updateWorkoutExerciseOrder(
   workoutId: number,
   exerciseIds: number[],
+  revision: number,
 ) {
   const response = await fetch(`${API_URL}/api/workouts/${workoutId}/exercises/order`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ exerciseIds }),
+    body: JSON.stringify({ exerciseIds, revision }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
