@@ -22,7 +22,7 @@ Die Username-Migration kann bei Case-Kollisionen absichtlich abbrechen. Betroffe
 4. Neue, unterschiedliche DB-/Backup-/Deploy-Credentials erzeugen; kompromittierte widerrufen.
 5. Leere Datenbank und Rollen initialisieren.
 6. Letzten verifizierten Restic-Snapshot auf einen geschützten Pfad restaurieren; Prüfsumme/Archivliste prüfen.
-7. Mit `deployment/restore.sh` in die leere DB restaurieren; Rollen-/Grant-Skript erneut ausführen; Migrationstatus prüfen.
+7. Mit `deployment/restore.sh` in die leere DB restaurieren; das Skript repariert Ownership/Grants automatisch und gezielt; anschließend Migrationstatus prüfen.
 8. Datenproben, FKs, Sequenzen, Nutzer, Workouts, XP, Templates und Freundschaften prüfen.
 9. API intern, danach Caddy/TLS extern testen; erst dann DNS/IP-Verkehr umstellen.
 10. Nutzer über Verlustfenster/Incident nach Betreiber- und Rechtsentscheidung informieren.

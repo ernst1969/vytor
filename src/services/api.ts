@@ -1,5 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { clearSessionCredentials, getSessionToken, storeSessionCredentials } from "@/services/session-store";
+import {
+  clearSessionCredentials,
+  clearSessionCredentialsIfCurrent,
+  clearSessionCredentialsIfIdentityCurrent,
+  clearSessionCredentialsIfUserCurrent,
+  getSessionIdentity,
+  getSessionToken,
+  storeSessionCredentials,
+} from "@/services/session-store";
+import { removeDeletedAccountLocalData } from "@/services/account-local-data";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 if (!__DEV__) {
@@ -11,13 +20,71 @@ if (!__DEV__) {
   if (!valid) throw new Error("EXPO_PUBLIC_API_URL must be an explicit HTTPS API URL without credentials, query or fragment for release builds.");
 }
 const API_URL = (configuredApiUrl || "http://localhost:3000").replace(/\/+$/, "");
-const sessionListeners = new Set<() => void>();
-export function onSessionChange(listener: () => void) { sessionListeners.add(listener); return () => { sessionListeners.delete(listener); }; }
-function notifySession() { for (const listener of sessionListeners) listener(); }
+export type SessionRequestBinding = {
+  accountId: string;
+  token: string | null;
+};
+export type SessionChange = {
+  reason: "login" | "logout" | "expired" | "account-deleted";
+  accountId?: string;
+};
+const sessionListeners = new Set<(change: SessionChange) => void>();
+export function onSessionChange(listener: (change: SessionChange) => void) { sessionListeners.add(listener); return () => { sessionListeners.delete(listener); }; }
+function notifySession(change: SessionChange) { for (const listener of sessionListeners) listener(change); }
+
+export async function captureSessionRequestBinding(expectedAccountId: string): Promise<SessionRequestBinding> {
+  const identity = await getSessionIdentity();
+  if (identity.userId !== expectedAccountId) throw new Error("Session changed before the request could be prepared");
+  return { accountId: expectedAccountId, token: identity.token };
+}
+
+export async function captureCurrentSessionRequestBinding(): Promise<SessionRequestBinding> {
+  const identity = await getSessionIdentity();
+  if (!identity.userId) throw new Error("No authenticated account found");
+  return { accountId: identity.userId, token: identity.token };
+}
+
+export async function isSessionRequestBindingCurrent(binding: SessionRequestBinding) {
+  const identity = await getSessionIdentity();
+  return identity.userId === binding.accountId && identity.token === binding.token;
+}
 
 
-async function fetch(input: string, init: RequestInit = {}) {
-  const token = await getSessionToken();
+async function fetch(
+  input: string,
+  init: RequestInit = {},
+  captureToken?: (token: string | null) => void,
+  binding?: SessionRequestBinding,
+) {
+  const acquired = await getSessionToken(async (legacyToken) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await globalThis.fetch(`${API_URL}/api/session`, {
+        headers: { Authorization: `Bearer ${legacyToken}` },
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const session = await response.json() as { userId?: unknown };
+        const expectedUserId = await AsyncStorage.getItem("vytor_user_id");
+        return Number.isSafeInteger(session.userId) && String(session.userId) === expectedUserId ? "valid" : "invalid";
+      }
+      return response.status === 401 ? "invalid" : "deferred";
+    } catch {
+      return "deferred";
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+  if (acquired.invalidated) notifySession({ reason: "expired" });
+  const token = acquired.token;
+  captureToken?.(token);
+  if (binding && binding.accountId !== await AsyncStorage.getItem("vytor_user_id")) {
+    throw new Error("Session changed before the request could be sent");
+  }
+  if (binding && binding.token !== token) {
+    throw new Error("Session changed before the request could be sent");
+  }
   const headers = new Headers(init.headers);
 
   if (token) {
@@ -29,8 +96,7 @@ async function fetch(input: string, init: RequestInit = {}) {
   try {
     const response = await globalThis.fetch(input, { ...init, headers, signal: init.signal ?? controller.signal });
     if (token && response.status === 401) {
-      await clearSessionCredentials();
-      notifySession();
+      if (await clearSessionCredentialsIfCurrent(token)) notifySession({ reason: "expired" });
     }
     return response;
   }
@@ -39,7 +105,23 @@ async function fetch(input: string, init: RequestInit = {}) {
 
 async function storeSession(data: { id: number; token?: string }) {
   await storeSessionCredentials(data.id, data.token);
-  notifySession();
+  notifySession({ reason: "login", accountId: String(data.id) });
+}
+
+export async function clearLocalSession() {
+  if (await clearSessionCredentials()) notifySession({ reason: "logout" });
+}
+
+export async function clearLocalSessionIfCurrent(expectedToken: string) {
+  const cleared = await clearSessionCredentialsIfCurrent(expectedToken);
+  if (cleared) notifySession({ reason: "expired" });
+  return cleared;
+}
+
+export async function clearLocalSessionIfUserCurrent(expectedUserId: string) {
+  const cleared = await clearSessionCredentialsIfUserCurrent(expectedUserId);
+  if (cleared) notifySession({ reason: "expired", accountId: expectedUserId });
+  return cleared;
 }
 
 export type ExerciseMeasurementType =
@@ -147,20 +229,32 @@ export async function loginUser(
   return data;
 }
 
-export async function logoutUser() {
+export async function logoutUser(binding?: SessionRequestBinding) {
+  const identity = binding
+    ? { token: binding.token, userId: binding.accountId }
+    : await getSessionIdentity();
   try {
-    await fetch(`${API_URL}/api/logout`, { method: "POST" });
+    await fetch(`${API_URL}/api/logout`, { method: "POST" }, undefined, {
+      accountId: identity.userId ?? "",
+      token: identity.token,
+    });
+  } catch {
+    // Local logout is authoritative when the server is unreachable. Cleanup is
+    // still compare-and-clear bound to the identity captured above.
   } finally {
-    const userId = await AsyncStorage.getItem("vytor_user_id");
-    if (userId) await AsyncStorage.removeItem(`vytor_active_workout_${userId}`);
-    await clearSessionCredentials();
+    const cleared = await clearSessionCredentialsIfIdentityCurrent(identity);
+    // This pre-account-isolation cache is never a recovery source. Account-scoped
+    // drafts are intentionally retained until a confirmed finish/discard/delete.
     await AsyncStorage.removeItem("vytor_active_workout");
-    notifySession();
+    if (cleared) notifySession({ reason: "logout" });
+    if (cleared) return true;
+    const current = await getSessionIdentity();
+    return current.token === null && current.userId === null;
   }
 }
 
-export async function getUser(userId: number) {
-  const response = await fetch(`${API_URL}/api/users/${userId}`);
+export async function getUser(userId: number, captureToken?: (token: string | null) => void) {
+  const response = await fetch(`${API_URL}/api/users/${userId}`, {}, captureToken);
 
   const data = await response.json();
 
@@ -172,6 +266,64 @@ export async function getUser(userId: number) {
   }
 
   return data;
+}
+
+export async function getCurrentSession(captureToken?: (token: string | null) => void): Promise<{ userId: number }> {
+  const response = await fetch(`${API_URL}/api/session`, {}, captureToken);
+  const data = await response.json();
+  if (!response.ok) {
+    throw Object.assign(new Error(data.error || `Backend returned ${response.status}`), { status: response.status });
+  }
+  return data;
+}
+
+export async function deleteAccount(password: string, binding: SessionRequestBinding) {
+  const httpResponse = await fetch(`${API_URL}/api/account`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  }, undefined, binding);
+  const response = await httpResponse.json();
+  if (!httpResponse.ok) {
+    throw Object.assign(new Error(response.error || `Backend returned ${httpResponse.status}`), { status: httpResponse.status });
+  }
+  let cleanupError: unknown;
+  try {
+    await removeDeletedAccountLocalData(binding.accountId, AsyncStorage);
+  } catch (error) {
+    cleanupError = error;
+  }
+  const cleared = await clearSessionCredentialsIfIdentityCurrent({
+    token: binding.token,
+    userId: binding.accountId,
+  });
+  // Always publish the account-scoped deletion event after server confirmation.
+  // A provider that is already serving B uses it only to drain/purge A writes.
+  notifySession({ reason: "account-deleted", accountId: binding.accountId });
+  if (cleanupError) throw cleanupError;
+  return { data: response, sessionCleared: cleared };
+}
+
+export async function changePassword(
+  currentPassword: string,
+  password: string,
+  binding: SessionRequestBinding,
+) {
+  const httpResponse = await fetch(`${API_URL}/api/account/password`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, password }),
+  }, undefined, binding);
+  const response = await httpResponse.json();
+  if (!httpResponse.ok) {
+    throw Object.assign(new Error(response.error || `Backend returned ${httpResponse.status}`), { status: httpResponse.status });
+  }
+  const cleared = await clearSessionCredentialsIfIdentityCurrent({
+    token: binding.token,
+    userId: binding.accountId,
+  });
+  if (cleared) notifySession({ reason: "logout", accountId: binding.accountId });
+  return { data: response, sessionCleared: cleared };
 }
 
 export async function updateProfile(
@@ -202,12 +354,17 @@ export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
   return data;
 }
 
-export async function createWorkoutTemplate(name: string, exerciseIds: number[], configuration?: WorkoutTemplate["configuration"]): Promise<WorkoutTemplate> {
+export async function createWorkoutTemplate(
+  name: string,
+  exerciseIds: number[],
+  configuration?: WorkoutTemplate["configuration"],
+  binding?: SessionRequestBinding,
+): Promise<WorkoutTemplate> {
   const response = await fetch(`${API_URL}/api/templates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, exerciseIds, configuration }),
-  });
+  }, undefined, binding);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
   return data;
@@ -578,6 +735,7 @@ export async function getPublicUser(
 
 export async function updateWorkoutExerciseSettings(
   workoutExerciseId: number,
+  revision: number,
   settings: {
     weightUnit?: WeightUnit;
     distanceUnit?: DistanceUnit;
@@ -591,17 +749,17 @@ export async function updateWorkoutExerciseSettings(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(settings),
+      body: JSON.stringify({ ...settings, revision }),
     },
   );
 
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(
+    throw Object.assign(new Error(
       data.error ||
         `Backend returned ${response.status}`,
-    );
+    ), { status: response.status });
   }
 
   return data;
@@ -654,8 +812,8 @@ export type UserSettings = {
   theme: "SYSTEM" | "LIGHT" | "DARK";
 };
 
-export async function getSettings(): Promise<UserSettings> {
-  const response = await fetch(`${API_URL}/api/settings`);
+export async function getSettings(binding?: SessionRequestBinding): Promise<UserSettings> {
+  const response = await fetch(`${API_URL}/api/settings`, {}, undefined, binding);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Backend returned ${response.status}`);
   return data;

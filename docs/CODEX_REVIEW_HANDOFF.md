@@ -1,5 +1,7 @@
 # Vytor – unabhängige Review-Übergabe
 
+> Historischer Stand des ersten Audits. Die nachgelagerte Remediation und aktuelle Testevidenz stehen in [INDEPENDENT_REVIEW_REMEDIATION.md](INDEPENDENT_REVIEW_REMEDIATION.md). Bei Widersprüchen ist dieses neue Dokument maßgeblich; operative Befehle stehen im [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md).
+
 ## 1. Scope und Referenz
 
 Vollständiger Code-/Konfigurations-/Dokumentationsaudit am 21.10.2026. Basiscommit: `cf4e9a257c5b670c0600bc35a844edd254bb97a9` (`Prepare Hetzner deployment and harden API security`). Der Arbeitsbaum war zu Beginn sauber; alle unten genannten Änderungen sind uncommittet. Kein Push, Deployment, DNS-, Cloud-, Firewall-, Secret- oder EAS-Kontoeingriff.

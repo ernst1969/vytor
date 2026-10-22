@@ -1,6 +1,6 @@
 # Vytor – TODO
 
-**Stand:** 21. Oktober 2026
+**Stand:** 22. Oktober 2026
 
 Diese Liste enthält ausschließlich offene Aufgaben. Abgeschlossene Änderungen und Prüfungen stehen im [Changelog](CHANGELOG.md). Browserprüfungen und erfolgreiche Plattform-Exporte ersetzen keine native Geräteabnahme; siehe [Release-Checkliste](docs/RELEASE_CHECKLIST.md).
 
@@ -9,6 +9,8 @@ Diese Liste enthält ausschließlich offene Aufgaben. Abgeschlossene Änderungen
 - [ ] **Docker/Caddy-Staging prüfen:** beide Docker-Targets bauen, Compose validieren, echte Proxy-/Header-/TLS-/Portkette und Shutdown testen.
 - [ ] **Offsite-Backup abnehmen:** Restic gegen externes Repository ausführen, Alarmzustellung auslösen und vollständigen Restore auf separater Infrastruktur messen.
 - [ ] **SecureStore nativ abnehmen:** Legacy-Migration, Offlinefehler, Logout/Accountwechsel, Android Backup/Reinstall und iOS Reinstall auf neuen Builds testen.
+- [ ] **iOS-Draft-Datenschutz abnehmen:** Sandbox-Backup-/Reinstall-Verhalten des accountgebundenen AsyncStorage-Drafts auf realem Gerät prüfen und Betreiberentscheidung dokumentieren; Android Auto Backup ist deaktiviert.
+- [ ] **Workout-/Session-Races nativ abnehmen:** die automatisierten Save-/Wechsel-/Background-/Account-Races einschließlich Save-Preset, tokenlosem Logout, Passwortänderung, bestätigter Account-Löschung vor/während Sessionwechsel, verzögerter 401, Finish/Cancel/Start/Add/Delete/Move/Replace, A→B→A-Hydration und Delete-Purge auf zwei realen Geräten mit Netzunterbrechung reproduzieren.
 - [ ] **Expo-Advisories neu bewerten:** kompatible SDK-57-Patches verfolgen oder SDK-58-Migration separat planen; kein automatisches npm-force-fix.
 
 ## P2 – Design-Konsistenz

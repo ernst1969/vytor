@@ -7,7 +7,7 @@ import "dotenv/config";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { authLimits, accountPasswordLimits, proxyTrust, registrationAllowed, requestIdentity, logError, tooMany } from "./security.js";
-import { workoutValidation, boundedTree, object, WORKOUT_LIMITS, validSets } from "./workout-validation.js";
+import { workoutValidation, boundedTree, integer, object, WORKOUT_LIMITS, validSets } from "./workout-validation.js";
 
 import { validTemplateConfiguration } from "./validation.js";
 import { levelForXp, progressForXp, workoutXp, rankTier } from "./progression.js";
@@ -340,6 +340,10 @@ app.post("/api/logout", async (req: AuthenticatedRequest, res) => {
   }
 
   res.json({ success: true });
+});
+
+app.get("/api/session", (req: AuthenticatedRequest, res) => {
+  res.json({ userId: req.userId });
 });
 
 app.get("/api/leaderboard", async (_req, res) => {
@@ -1515,10 +1519,7 @@ app.patch(
       }
 
       if (existing.workout.endedAt || existing.workout.suspended) {
-        return res.status(400).json({
-          error:
-            "Workout has already ended",
-        });
+        return res.status(409).json({ error: "Workout is no longer active", code: "WORKOUT_CONFLICT" });
       }
 
       const weightUnit =
@@ -1537,8 +1538,12 @@ app.patch(
             ? "KM"
             : undefined;
 
-      const restSeconds = Number(req.body.restSeconds);
+      const restSeconds = req.body.restSeconds;
+      const revision = req.body.revision;
       const hasRestSeconds = req.body.restSeconds !== undefined;
+      if (!integer(revision)) {
+        return res.status(400).json({ error: "Revision must be a non-negative 32-bit integer" });
+      }
       if (hasRestSeconds && (!Number.isInteger(restSeconds) || restSeconds < 0 || restSeconds > 3600)) {
         return res.status(400).json({ error: "Rest duration must be between 0 and 3600 seconds" });
       }
@@ -1554,30 +1559,33 @@ app.patch(
         });
       }
 
-      const updated =
-        await prisma.workoutExercise.update({
+      const updated = await prisma.$transaction(async (tx) => {
+        const locked = await tx.workout.updateMany({
           where: {
-            id: workoutExerciseId,
+            id: existing.workoutId,
+            userId: authUserId(req),
+            endedAt: null,
+            suspended: false,
+            revision,
           },
-
+          data: { revision: { increment: 1 } },
+        });
+        if (locked.count !== 1) throw new WorkoutConflictError();
+        return tx.workoutExercise.update({
+          where: { id: workoutExerciseId },
           data: {
-            ...(weightUnit
-              ? {
-                  weightUnit,
-                }
-              : {}),
-
-            ...(distanceUnit
-              ? {
-                  distanceUnit,
-                }
-              : {}),
+            ...(weightUnit ? { weightUnit } : {}),
+            ...(distanceUnit ? { distanceUnit } : {}),
             ...(hasRestSeconds ? { restSeconds } : {}),
           },
         });
+      });
 
-      res.json(updated);
+      res.json({ ...updated, revision: revision + 1 });
     } catch (error) {
+      if (error instanceof WorkoutConflictError) {
+        return res.status(409).json({ error: "Workout changed on another device", code: "WORKOUT_CONFLICT" });
+      }
       logError(
         "Failed to update workout exercise settings:",
         error,

@@ -1,7 +1,6 @@
 # Sicherheitsprüfung und Hardening für privaten Internetbetrieb
 
-Stand: 21.10.2026. Express 5 / Prisma 7.10.1 / PostgreSQL; eine Backend-Instanz.
-Aktueller Gate-Status und Nachweise: [DEPLOYMENT_READINESS.md](DEPLOYMENT_READINESS.md).
+Stand: 21.10.2026. Dieses Dokument bewahrt den ursprünglichen Security-Audit und seine Begründungen. Aktueller Gate-Status: [DEPLOYMENT_READINESS.md](DEPLOYMENT_READINESS.md); nachgelagerte unabhängige Befunde: [INDEPENDENT_REVIEW_REMEDIATION.md](INDEPENDENT_REVIEW_REMEDIATION.md); operative Quelle: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md).
 5–15 bekannte Nutzer. Kein Deployment, keine produktiven Secrets/Daten geändert,
 keine UI-, Schema- oder Client-Session-Migration. Statische Prüfung plus echte HTTP-
 und PostgreSQL-Integrationstests auf separatem temporärem Testcluster; kein Penetrationstest.
@@ -13,13 +12,13 @@ und PostgreSQL-Integrationstests auf separatem temporärem Testcluster; kein Pen
 | Hoch | Fehlendes Rate Limiting für Login, Registrierung, Passwortprüfungen | **Behoben** | IP-/Account-Budgets, HTTP 429 + Retry-After, IPv6-/64-Buckets, exakter Caddy-Trust. Grenzen der Einzelinstanz unten. |
 | Hoch | Eigene XP durch beliebige Sätze/Abschlussmassen manipulierbar | **Teilweise behoben** | Begrenzte Sätze/Messwerte, transaktionales Minuten-/Stundenlimit, einmalige Vergabe auch bei Parallelaufrufen. Erfundenes Training innerhalb der Grenzen bleibt möglich. |
 | Mittel | Unvollständige Eingabe-/Mengenvalidierung | **Behoben** für Workout-Schreibwege | Gemeinsame Validierung für Erstellen, Draft, Finish, Hinzufügen, Ersetzen, Settings, Sortieren; Template-Mengen begrenzt. Keine Aussage, dass alle übrigen API-Validierungen vollständig vereinheitlicht sind. |
-| Mittel | Öffentliche Profile inklusive Trainingszeitpunkten | **Offen** | Derzeit für alle angemeldeten Nutzer sichtbar; konkrete Vorschläge unten. Keine unautorisierte Änderung der Produktsichtbarkeit. |
-| Mittel | Token in AsyncStorage | **Code behoben / Gerätetest offen** | Native SecureStore-Migration umgesetzt; Web tabgebunden. Neuer nativer Build und Reinstall-/Logout-Race-Test fehlen. |
+| Mittel | Öffentliche Profile inklusive Trainingszeitpunkten | **Behoben** | Nicht-Freunde erhalten keine Recent-Workout-Zeitpunkte; Eigentümer/Freunde behalten Zugriff. Integrationstest vorhanden. |
+| Mittel | Token in AsyncStorage | **Code behoben / Gerätetest offen** | Native SecureStore-Migration mit Self-Endpunkt-Validierung, Offline-Aufschub, verifiziertem Write und serialisierten Sessionwechseln; reale Geräte/Reinstall bleiben offen. |
 | Mittel | Rohe Datenbank-/Prisma-Fehler im Log | **Behoben** | Alle API-Fehlerlogs verwenden Allowlist-JSON: statischer Ereignisname, Fehlercode, optional generierte Request-ID. Keine message/stack/meta/SQL/URL/Request-Bodies. |
 | Mittel | API nutzt PostgreSQL-Initialbenutzer/Superuser | **Behoben** | Admin/Migrator/API getrennt; Migration und DML/DDL-Denials auf PostgreSQL 18.6 getestet. Compose-Test auf Docker bleibt offen. |
-| Mittel | Account-Löschung: archivierte Übungen und SetNull-Referenzen | **Teilweise behoben** | Normale Löschung samt Sessions/Friends/XP/Feedback auf Test-DB verifiziert, Passwortprüfung limitiert. Datenschutz-/Anonymisierungsentscheidung und Sonderfälle mit fremden Template-Referenzen offen. |
-| Niedrig/Mittel | Gleichzeitige Freundschaftsaktionen | **Offen** | Teilnehmerprüfungen bleiben erhalten und werden getestet; Annahme/Ablehnung noch nicht als bedingtes atomisches Update implementiert. |
-| Niedrig | Case-insensitive Username-Prüfung, case-sensitive DB-Unique | **Offen** | Account-Limits normalisieren Schreibweise. DB-Eindeutigkeit benötigt Kollisionsanalyse und separate Datenmigration. |
+| Mittel | Account-Löschung: archivierte Übungen und SetNull-Referenzen | **Behoben (Code)** | Unreferenzierte eigene Übungen werden gelöscht, fremdreferenzierte neutral anonymisiert; Integrationstest vorhanden. Betreiber-/Backup-Löschprozess bleibt separat offen. |
+| Niedrig/Mittel | Gleichzeitige Freundschaftsaktionen | **Behoben** | Bedingte atomare Pending-Updates; Accept/Reject-Race hat genau einen Gewinner. |
+| Niedrig | Case-insensitive Username-Prüfung, case-sensitive DB-Unique | **Behoben** | Funktionaler Unique-Index; Migration bricht bei Bestandskollision sicher ab. |
 
 Die früheren Konfigurationskorrekturen bleiben bestehen: HTTPS-API für Release-Client,
 Produktions-CORS standardmäßig ohne Browser-Origin oder optional exakt ein HTTPS-`WEB_ORIGIN`, keine Express-Kennung, verpflichtende Produktions-DB,
@@ -112,7 +111,7 @@ Die Grenzen sind ein privater Abuse-Schutz, kein Beweis für tatsächlich geleis
 ## Fehlerbehandlung
 
 Parser-/Größenfehler und eigene Validatoren liefern 400, fehlende/ungültige Session 401,
-fremde Zugriffe 403/404, Zustandskonflikte 409 (bereits beendet sequenziell weiterhin 400),
+fremde Zugriffe 403/404, Zustands- und Revisionskonflikte 409,
 Limits 429, unerwartete Fehler 500 mit generischer Meldung. Clients bekommen keine SQL-/Prisma-
 Details. Jeder Request erhält eine servergenerierte `X-Request-ID`; zentrale interne Fehler
 liefern zusätzlich `code` und `requestId`. Bestehende fachliche Fehlertexte bleiben überwiegend

@@ -32,6 +32,28 @@ sudo bash deployment/compose.sh config --quiet
 sudo bash deployment/compose.sh build api migrate
 ```
 
+Auf derselben isolierten Stagingmaschine anschließend mit Testsecrets und einer Testdomain ausführen; erst nach vollständigem Protokoll darf Docker/Caddy von BLOCKED auf PASS wechseln:
+
+```bash
+sudo bash deployment/compose.sh config
+sudo bash deployment/compose.sh up -d --wait db
+sudo bash deployment/compose.sh run --rm migrate
+sudo bash deployment/compose.sh up -d --wait api caddy
+sudo bash deployment/compose.sh ps
+sudo bash deployment/compose.sh exec -T api sh -c 'id; test ! -w /app; test -w /tmp'
+curl --fail --silent https://STAGING_API_DOMAIN/api/health
+curl --fail --silent https://STAGING_API_DOMAIN/api/ready
+curl --fail --silent -H 'Forwarded: for=127.0.0.1' -H 'X-Forwarded-For: 127.0.0.1' https://STAGING_API_DOMAIN/api/health
+sudo bash deployment/compose.sh restart db api caddy
+sudo bash deployment/compose.sh stop db
+sudo bash deployment/compose.sh start db
+sudo bash deployment/compose.sh up -d --wait api
+sudo bash deployment/compose.sh stop --timeout 30 api caddy db
+sudo bash deployment/compose.sh up -d --wait db api caddy
+```
+
+Zusätzlich extern `80/443` sowie geschlossene `3000/5432` prüfen, Caddy-Konfiguration im Container validieren, Logrotation/Ressourcenlimits mit `docker inspect`, DB-Persistenz über Neustart und einen kontrollierten API-Reconnect nach DB-Unterbrechung nachweisen. Testdaten vor/nach Neustart lesen. YAML-Parsing oder Image-Build allein genügt nicht.
+
 Prüfe vor Migration read-only auf Username-Kollisionen:
 
 ```sql
@@ -73,7 +95,7 @@ sudo bash deployment/compose.sh run --rm migrate
 sudo bash deployment/compose.sh run --rm migrate npx prisma migrate status
 ```
 
-Das Init-Skript erzeugt `vytor_migrator` und `vytor_api` nur bei einem neuen Volume. Bei Restore oder bestehendem Volume führe es nach gesichertem Review explizit im DB-Container aus und danach erneut nach dem Restore, damit bestehende Objekte DML-Grants erhalten:
+Das Init-Skript erzeugt `vytor_migrator` und `vytor_api` bei einem neuen Volume. Bei bestehenden Volumes kann es idempotent erneut laufen. `deployment/restore.sh` führt es nach dem Restore automatisch aus: administrator-eigene App-Objekte im `public`-Schema gehen gezielt an den Migrator, anschließend werden API-Grants erneuert. Keine fremden Schemas/Owner pauschal übertragen.
 
 ```bash
 sudo bash deployment/compose.sh exec -T db bash /docker-entrypoint-initdb.d/20-vytor-roles.sh
@@ -95,7 +117,6 @@ Zuerst auf einem getrennten Rehearsal-Volume restaurieren. **VPS**, Produktion e
 sha256sum -c backups/pre-move.dump.sha256
 sudo bash deployment/compose.sh stop api caddy
 sudo bash deployment/restore.sh /opt/vytor/backups/pre-move.dump
-sudo bash deployment/compose.sh exec -T db bash /docker-entrypoint-initdb.d/20-vytor-roles.sh
 sudo bash deployment/compose.sh run --rm migrate
 ```
 
@@ -129,7 +150,9 @@ npx eas-cli@latest build --profile preview --platform all
 npx eas-cli@latest build --profile production --platform all
 ```
 
-Auf zwei echten Geräten vollständige Matrix aus `RELEASE_CHECKLIST.md` inklusive Legacy-Token-Migration, Logout-Race, Offline-Draft und Konflikt durchführen. Store-Submission bleibt separate Betreiberfreigabe.
+Auf zwei echten Geräten vollständige Matrix aus `RELEASE_CHECKLIST.md` inklusive Legacy-Token-Migration, Logout-Race, gebundener Passwort-/Account-Löschung während A→B/A→B→A, Offline-Draft und Konflikt durchführen. Store-Submission bleibt separate Betreiberfreigabe.
+
+Android Auto Backup ist in `app.json` deaktiviert, damit beim Logout erhaltene Workout-Drafts nicht über Google Drive auf eine Neuinstallation gelangen. iOS-Keychain-, Sandbox-Backup- und Reinstall-Verhalten muss auf einem echten signierten Build geprüft werden.
 
 ## 10. Go/No-Go
 

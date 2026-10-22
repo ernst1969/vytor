@@ -22,4 +22,5 @@ SQL
 )
 [[ "$objects" == 0 ]] || { echo 'ERROR: public schema is not empty. Restore to a NEW database instead.' >&2; exit 1; }
 bash deployment/compose.sh exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --single-transaction --exit-on-error --no-owner --no-acl' < "$archive"
-echo 'Restore completed atomically. Validate data before starting the API.'
+bash deployment/compose.sh exec -T db bash /docker-entrypoint-initdb.d/20-vytor-roles.sh
+echo 'Restore completed atomically; scoped ownership/grant repair completed afterward. Validate data before starting the API.'

@@ -109,10 +109,24 @@ try {
   await api(`/workout-exercises/${added.id}/replace`, "PATCH", { exerciseId: replacement.id, weightUnit: "KG", distanceUnit: "KM", revision: 3 }, a.token);
   await api(`/workout-exercises/${added.id}/replace`, "PATCH", { exerciseId: custom.id, weightUnit: "KG", distanceUnit: "KM", revision: 3 }, a.token, 409);
   assert.equal((await api("/workouts/active/current", "GET", undefined, a.token)).exercises.find((item) => item.id === added.id).exerciseId, replacement.id);
-  await api(`/workout-exercises/${added.id}`, "DELETE", { revision: 4 }, a.token);
+  await api(`/workout-exercises/${added.id}/settings`, "PATCH", { revision: 4, restSeconds: 75 }, b.token, 403);
+  for (const revision of [undefined, null, false, "5", -1, 1.5, 2_147_483_648, [], {}]) {
+    const body = revision === undefined ? { restSeconds: 75 } : { revision, restSeconds: 75 };
+    await api(`/workout-exercises/${added.id}/settings`, "PATCH", body, a.token, 400);
+  }
+  const settingsUpdate = await api(`/workout-exercises/${added.id}/settings`, "PATCH", { revision: 4, restSeconds: 75 }, a.token);
+  assert.equal(settingsUpdate.revision, 5);
+  await api(`/workout-exercises/${added.id}/settings`, "PATCH", { revision: 4, restSeconds: 80 }, a.token, 409);
+  const settingsRace = await Promise.all([80, 85].map((restSeconds) => fetch(base + `/workout-exercises/${added.id}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${a.token}` },
+    body: JSON.stringify({ revision: 5, restSeconds }),
+  })));
+  assert.deepEqual(settingsRace.map((response) => response.status).sort(), [200, 409]);
+  await api(`/workout-exercises/${added.id}`, "DELETE", { revision: 6 }, a.token);
   assert.equal((await api("/workouts/active/current", "GET", undefined, a.token)).exercises.length, 1);
   await api(`/workouts/${workout.id}/finish`, "POST", { exercises: [] }, a.token, 400);
-  const payload = { revision: 5, exercises: [{ workoutExerciseId: workout.exercises[0].id, weightUnit: "LBS", sets: [{ id: "main", setNumber: 1, weight: 100, reps: 10, setType: "REGULAR" }, { id: "drop", dropSetOfId: "main", setNumber: 2, weight: 80, reps: 8, setType: "DROP" }, { id: "warmup", setNumber: 3, weight: 40, reps: 10, setType: "WARMUP" }] }] };
+  const payload = { revision: 7, exercises: [{ workoutExerciseId: workout.exercises[0].id, weightUnit: "LBS", sets: [{ id: "main", setNumber: 1, weight: 100, reps: 10, setType: "REGULAR" }, { id: "drop", dropSetOfId: "main", setNumber: 2, weight: 80, reps: 8, setType: "DROP" }, { id: "warmup", setNumber: 3, weight: 40, reps: 10, setType: "WARMUP" }] }] };
   for (const set of [null, { setNumber: 1, reps: -1, weight: 100 }, { setNumber: 1, reps: 12, weight: 100, setType: "FAKE" }, { setNumber: 1, reps: Number.MAX_SAFE_INTEGER, weight: 100 }, { setNumber: 1, durationSeconds: 86401 }]) await api(`/workouts/${workout.id}/finish`, "POST", { ...payload, exercises: [{ workoutExerciseId: workout.exercises[0].id, sets: [set] }] }, a.token, 400);
   await api(`/workouts/${workout.id}/finish`, "POST", payload, b.token, 404);
   await api(`/WORKOUTS/%${workout.id.toString().charCodeAt(0).toString(16)}/FINISH/`, "POST", { ...payload, exercises: [null] }, a.token, 400);
@@ -126,6 +140,7 @@ try {
   assert.equal(finished.earnedXp, 120);
   assert.ok(Math.abs(finished.exercises[0].sets[0].weight - 45.359237) < 0.001);
   assert.equal(finished.exercises[0].sets[1].dropSetOfId, finished.exercises[0].sets[0].id);
+  await api(`/workout-exercises/${workout.exercises[0].id}/settings`, "PATCH", { revision: 7, restSeconds: 90 }, a.token, 409);
   await api(`/workouts/${workout.id}/finish`, "POST", payload, a.token, 400);
   assert.equal((await api(`/users/${a.id}`, "GET", undefined, a.token)).xp, 120);
   await api(`/workouts/detail/${workout.id}`, "GET", undefined, b.token);
@@ -161,6 +176,27 @@ try {
   await api(`/friends/${c.id}`, "DELETE", undefined, b.token);
   await api(`/friends/${b.id}`, "DELETE", undefined, a.token);
   await api(`/workouts/detail/${workout.id}`, "GET", undefined, b.token, 403);
+
+  // Parent revision atomically serializes settings against finish and suspension.
+  const settingsFinishWorkout = await api("/workouts", "POST", { userId: c.id, exercises: [{ exerciseId: exercise.id }] }, c.token, 201);
+  const settingsFinishPayload = { revision: 0, exercises: [{ workoutExerciseId: settingsFinishWorkout.exercises[0].id, sets: [{ setNumber: 1, weight: 50, reps: 5, setType: "REGULAR" }] }] };
+  const settingsFinishRace = await Promise.all([
+    fetch(base + `/workout-exercises/${settingsFinishWorkout.exercises[0].id}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${c.token}` }, body: JSON.stringify({ revision: 0, restSeconds: 60 }) }),
+    fetch(base + `/workouts/${settingsFinishWorkout.id}/finish`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${c.token}` }, body: JSON.stringify(settingsFinishPayload) }),
+  ]);
+  assert.deepEqual(settingsFinishRace.map((response) => response.status).sort(), [200, 409]);
+  const stillActiveAfterRace = await api("/workouts/active/current", "GET", undefined, c.token);
+  if (stillActiveAfterRace) await api(`/workouts/${settingsFinishWorkout.id}/finish`, "POST", { ...settingsFinishPayload, revision: 1 }, c.token);
+  await api(`/workout-exercises/${settingsFinishWorkout.exercises[0].id}/settings`, "PATCH", { revision: 1, restSeconds: 70 }, c.token, 409);
+
+  const suspendSource = await api("/workouts", "POST", { userId: c.id, exercises: [{ exerciseId: exercise.id }] }, c.token, 201);
+  const suspendTarget = await connection.query(`INSERT INTO "${schema}"."Workout" ("userId", "startedAt", "suspended") VALUES ($1, now(), true) RETURNING "id"`, [c.id]);
+  const suspendRace = await Promise.all([
+    fetch(base + `/workout-exercises/${suspendSource.exercises[0].id}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${c.token}` }, body: JSON.stringify({ revision: 0, restSeconds: 65 }) }),
+    fetch(base + `/workouts/${suspendTarget.rows[0].id}/resume`, { method: "POST", headers: { Authorization: `Bearer ${c.token}` } }),
+  ]);
+  assert.ok(suspendRace.every((response) => [200, 409].includes(response.status)));
+  await api(`/workout-exercises/${suspendSource.exercises[0].id}/settings`, "PATCH", { revision: 2, restSeconds: 70 }, c.token, 409);
   await api("/account/password", "PUT", { currentPassword: password, password: "changed-password-123" }, c.token);
   await api("/settings", "GET", undefined, c.token, 401);
   const changed = await api("/login", "POST", { username: "tester_c", password: "changed-password-123" });

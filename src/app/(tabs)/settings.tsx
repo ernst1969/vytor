@@ -1,14 +1,31 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Layout, type AppPalette } from "@/constants/theme";
 import { useAppTheme } from "@/context/theme-context";
 import { useWorkout } from "@/context/workout-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { request, getSettings, logoutUser, updateSettings, type UserSettings } from "@/services/api";
+import {
+  captureCurrentSessionRequestBinding,
+  captureSessionRequestBinding,
+  changePassword,
+  deleteAccount,
+  getSettings,
+  isSessionRequestBindingCurrent,
+  logoutUser,
+  onSessionChange,
+  request,
+  updateSettings,
+  type SessionRequestBinding,
+  type UserSettings,
+} from "@/services/api";
 
 type Panel = "rest" | "appearance" | "feedback" | "password" | "delete";
+type AccountDialog = {
+  kind: "logout" | "delete" | "password";
+  binding: SessionRequestBinding;
+};
 const themeLabel = (theme: UserSettings["theme"]) => theme.charAt(0) + theme.slice(1).toLowerCase();
 const restLabel = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
@@ -27,17 +44,54 @@ export default function SettingsScreen() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  const [dialog, setDialog] = useState<"logout" | "delete" | "password" | null>(null);
+  const [dialog, setDialog] = useState<AccountDialog | null>(null);
+  const [screenBinding, setScreenBinding] = useState<SessionRequestBinding | null>(null);
+  const accountActionInFlight = useRef(false);
 
   async function load() {
-    try { setSettings(await getSettings()); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not load settings"); }
+    let binding: SessionRequestBinding | null = null;
+    try {
+      binding = await captureCurrentSessionRequestBinding();
+      const value = await getSettings(binding);
+      if (!(await isSessionRequestBindingCurrent(binding))) return;
+      setScreenBinding(binding);
+      setSettings(value);
+    } catch (cause) {
+      if (!binding || await isSessionRequestBindingCurrent(binding)) {
+        setMessage(cause instanceof Error ? cause.message : "Could not load settings");
+      }
+    }
   }
   useEffect(() => {
-    let active = true;
-    getSettings().then((value) => { if (active) setSettings(value); }).catch((cause) => { if (active) setMessage(cause instanceof Error ? cause.message : "Could not load settings"); });
-    return () => { active = false; };
+    void Promise.resolve().then(load);
+    return onSessionChange((change) => {
+      setDialog(null);
+      setExpanded(null);
+      setCurrentPassword("");
+      setPassword("");
+      setMessage("");
+      setSettings(null);
+      setScreenBinding(null);
+      if (change.reason === "login" || change.reason === "account-deleted") void load();
+    });
   }, []);
+
+  async function openAccountDialog(kind: AccountDialog["kind"]) {
+    if (saving || !screenBinding) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const binding = await captureSessionRequestBinding(screenBinding.accountId);
+      if (binding.token !== screenBinding.token) throw new Error("Session changed. Please open Settings again.");
+      setDialog({ kind, binding });
+    } catch (cause) {
+      setCurrentPassword("");
+      setPassword("");
+      setMessage(cause instanceof Error ? cause.message : "Session changed. Please open Settings again.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function toggle(panel: Panel) {
     if (saving) return;
@@ -66,15 +120,33 @@ export default function SettingsScreen() {
   }
 
   async function accountAction() {
-    if (saving) return;
+    const action = dialog;
+    if (!action || accountActionInFlight.current) return;
+    accountActionInFlight.current = true;
     setSaving(true);
     try {
-      if (dialog === "delete") await request("/account", "DELETE", { password: currentPassword });
-      if (dialog === "password") await request("/account/password", "PUT", { currentPassword, password });
-      await logoutUser();
-      router.replace("/login");
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not update account"); }
-    finally { setSaving(false); setDialog(null); }
+      if (action.kind === "delete") {
+        const result = await deleteAccount(currentPassword, action.binding);
+        if (result.sessionCleared) router.replace("/login");
+        return;
+      }
+      if (action.kind === "password") {
+        const result = await changePassword(currentPassword, password, action.binding);
+        if (result.sessionCleared) router.replace("/login");
+        return;
+      }
+      if (await logoutUser(action.binding)) router.replace("/login");
+    } catch (cause) {
+      if (await isSessionRequestBindingCurrent(action.binding)) {
+        setMessage(cause instanceof Error ? cause.message : "Could not update account");
+      }
+    } finally {
+      accountActionInFlight.current = false;
+      setCurrentPassword("");
+      setPassword("");
+      setSaving(false);
+      setDialog(null);
+    }
   }
 
   function action(label: string, onPress: () => void, disabled = false, destructive = false) {
@@ -128,17 +200,17 @@ export default function SettingsScreen() {
     {panel("password", "Change password", "Update your sign-in password", <>
       <TextInput accessibilityLabel="Current password" style={styles.field} secureTextEntry value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor={Colors.textMuted} />
       <TextInput accessibilityLabel="New password" style={styles.field} secureTextEntry value={password} onChangeText={setPassword} placeholder="New password (8–72 characters)" placeholderTextColor={Colors.textMuted} />
-      {action("Change password", () => setDialog("password"), !currentPassword || password.length < 8)}
+      {action("Change password", () => void openAccountDialog("password"), !currentPassword || password.length < 8)}
     </>)}
-    <Pressable accessibilityRole="button" disabled={saving} onPress={() => { setMessage(""); setDialog("logout"); }} style={({ pressed }) => [styles.logout, pressed && styles.pressed, saving && styles.disabled]}><Text style={styles.rowTitle}>Log out</Text><Text style={styles.chevron}>›</Text></Pressable>
+    <Pressable accessibilityRole="button" disabled={saving} onPress={() => void openAccountDialog("logout")} style={({ pressed }) => [styles.logout, pressed && styles.pressed, saving && styles.disabled]}><Text style={styles.rowTitle}>Log out</Text><Text style={styles.chevron}>›</Text></Pressable>
     <Text style={[styles.section, styles.dangerSection]}>DANGER ZONE</Text>
     {panel("delete", "Delete account", "Permanently delete your account and data", <>
       <Text style={styles.helper}>This deletes your profile, workouts, templates, friendships and feedback. Enter your password to continue.</Text>
       <TextInput accessibilityLabel="Password to delete account" style={styles.field} secureTextEntry value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor={Colors.textMuted} />
-      {action("Delete account", () => setDialog("delete"), !currentPassword, true)}
+      {action("Delete account", () => void openAccountDialog("delete"), !currentPassword, true)}
     </>, true)}
     {!!message && <Text accessibilityRole="alert" style={styles.message}>{message}</Text>}
-    <ConfirmDialog visible={dialog !== null} busy={saving} title={dialog === "delete" ? "Delete account permanently?" : dialog === "password" ? "Change password?" : "Log out?"} message={dialog === "delete" ? "Your profile, sessions, workouts, templates, friendships and feedback will be deleted permanently." : dialog === "password" ? "All sessions will be ended. Sign in again with your new password." : "Log out of this device?"} onCancel={() => setDialog(null)} onConfirm={() => void accountAction()} />
+    <ConfirmDialog visible={dialog !== null} busy={saving} title={dialog?.kind === "delete" ? "Delete account permanently?" : dialog?.kind === "password" ? "Change password?" : "Log out?"} message={dialog?.kind === "delete" ? "Your profile, sessions, workouts, templates, friendships and feedback will be deleted permanently." : dialog?.kind === "password" ? "All sessions will be ended. Sign in again with your new password." : "Log out of this device?"} onCancel={() => setDialog(null)} onConfirm={() => void accountAction()} />
   </ScrollView>;
 }
 

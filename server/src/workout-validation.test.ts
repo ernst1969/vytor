@@ -16,7 +16,12 @@ test("create/edit/draft reject malformed nested input while accepting incomplete
   assert.equal(validWorkoutBody("/workouts", "POST", { userId: 1, exercises: [null] }), false);
   assert.equal(validWorkoutBody("/workouts", "POST", { userId: 1, exercises: [{ exerciseId: "1" }] }), false);
   assert.equal(validWorkoutBody("/workouts/1/exercises", "POST", { exerciseId: 1, weightUnit: "fake" }), false);
-  assert.equal(validWorkoutBody("/workout-exercises/1/settings", "PATCH", { restSeconds: "60" }), false);
+  assert.equal(validWorkoutBody("/workout-exercises/1/settings", "PATCH", { revision: 0, restSeconds: "60" }), false);
+  assert.equal(validWorkoutBody("/workout-exercises/1/settings", "PATCH", { restSeconds: 60 }), false);
+  assert.equal(validWorkoutBody("/workout-exercises/1/settings", "PATCH", { revision: 0, restSeconds: 60 }), true);
+  for (const revision of [undefined, null, false, "5", -1, 1.5, 2_147_483_648, [], {}]) {
+    assert.equal(validWorkoutBody("/workout-exercises/1/settings", "PATCH", { revision, restSeconds: 60 }), false, `revision ${JSON.stringify(revision)}`);
+  }
   assert.equal(validWorkoutBody("/workouts/1/exercises/order", "PATCH", { exerciseIds: [1, 1] }), false);
   const draft = { revision: 0, notes: "", draft: { restEndsAt: null, exercises: [{ workoutExerciseId: 1, exerciseId: 1, restSeconds: null, sets: [{ reps: "", weight: "", durationSeconds: "", completed: false }] }] } };
   assert.equal(validWorkoutBody("/workouts/1/draft", "PUT", draft), true);

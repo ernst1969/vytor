@@ -73,7 +73,7 @@ export function validWorkoutBody(path: string, method: string, body: unknown): b
   if (/^\/workouts\/[^/]+\/exercises$/.test(path) && method === "POST") return integer(b.revision) && integer(b.exerciseId, 1) && units(b);
   if (/^\/workout-exercises\/[^/]+$/.test(path) && method === "DELETE") return integer(b.revision);
   if (/^\/workout-exercises\/[^/]+\/(settings|replace)$/.test(path) && method === "PATCH") {
-    return units(b) && (b.restSeconds === undefined || integer(b.restSeconds, 0, 3600)) && (!path.endsWith("/replace") || (integer(b.exerciseId, 1) && integer(b.revision)));
+    return units(b) && integer(b.revision) && (b.restSeconds === undefined || integer(b.restSeconds, 0, 3600)) && (!path.endsWith("/replace") || integer(b.exerciseId, 1));
   }
   return true;
 }

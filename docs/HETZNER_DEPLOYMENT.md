@@ -20,7 +20,7 @@ XP serverseitig, Level aus XP, Streak inklusive Rest Days aus Historie im Client
 
 Lokal PostgreSQL **18.6** durch reine SELECT-Abfrage bestätigt. Compose-Ziel deshalb
 18.6, kein Downgrade auf 17. Der PostgreSQL-18-Volume-Mount ist `/var/lib/postgresql`.
-Die CI verwendet bisher PostgreSQL 17; diese Vorbereitung verändert die CI nicht.
+Die CI verwendet PostgreSQL 18 und prüft Release-Exports mit der reservierten HTTPS-Testadresse `https://api.invalid`; ein separater Negativschritt muss eine HTTP-Release-URL ablehnen.
 
 | Datei | Zweck |
 | --- | --- |
@@ -162,7 +162,7 @@ sudo bash deployment/compose.sh exec -T db sh -c 'psql -X -U "$POSTGRES_USER" -d
 Caddy-Zertifikate ebenfalls. Datenbank-Initialvariablen gelten nur bei leerem Volume,
 Passwortrotation benötigt später SQL plus angepasste API-Konfiguration.
 Der Initialbenutzer ist nur Administrator. Migration und API verwenden getrennte, nicht administrative Rollen;
-das Rollen-/Grant-Skript ist auf frischem PostgreSQL 18.6 einschließlich DDL-Denials getestet.
+das Rollen-/Grant-Skript ist auf frischem PostgreSQL 18.6 einschließlich DDL-Denials getestet. Nach einem `--no-owner`-Restore überträgt es gezielt administrator-eigene Tabellen, Partitionen, Sequenzen, Views, Funktionen und Enum-/Domain-Typen im `public`-App-Schema an `vytor_migrator`; fremde Rollen und andere Schemas bleiben unberührt.
 API läuft Non-root/read-only ohne Capabilities; db benötigt Image-Initialisierungsrechte,
 Caddy Schreibrechte für Zertifikate. Keine privilegierten Container, kein Docker-Socket im Container.
 
@@ -215,7 +215,7 @@ sudo bash deployment/compose.sh exec -T db sh -c 'psql -X -U "$POSTGRES_USER" -d
 
 Nur vertrauenswürdige eigene Dumps verwenden (Restore kann SQL ausführen).
 Script verlangt `RESTORE vytor`, verweigert bestehende Objekte im public-Schema und
-restauriert atomar ohne `--clean`. Voraussetzung: dedizierte DB mit ausschließlich
+restauriert atomar ohne `--clean`. Danach führt es das Rollen-/Ownership-Skript automatisch aus, bevor Migrationen gestartet werden. Voraussetzung: dedizierte DB mit ausschließlich
 public-App-Schema. Andere Schemas/Extensions vorher untersuchen, keine blinde Schema-Migration.
 Nie vorher `prisma migrate deploy` in die leere Import-DB ausführen; sonst ist sie nicht mehr leer.
 Kein `migrate reset`, `db push` oder Seed auf importierten Daten.

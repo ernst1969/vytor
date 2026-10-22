@@ -24,7 +24,7 @@ test("muscle estimates separate primary and indirect load", () => {
 
 test("offline recovery preserves unsynced edits, detects conflicts and rejects corrupt caches", async () => {
   const { recoverySource, draftSignature, isLocalWorkoutSnapshot } = await import("../../src/utils/recovery.js");
-  const draft = { exercises: [{ workoutExerciseId: 1, exerciseId: 1, sets: [{ id: "set-1", setNumber: 1, setType: "REGULAR" }] }], restEndsAt: 123, notes: "local" };
+  const draft = { exercises: [{ id: "exercise-1", workoutExerciseId: 1, exerciseId: 1, name: "Squat", measurementType: "WEIGHT_REPS", weightUnit: "KG", distanceUnit: "KM", sets: [{ id: "set-1", setNumber: 1, weight: "", reps: "", distance: "", durationSeconds: "", completed: false, setType: "REGULAR" }] }], restEndsAt: 123, notes: "local" };
   const server = { id: 1, revision: 2, exercises: [{ id: 1 }], notes: "remote", draft: { ...draft, notes: "remote" } };
   const local = { ...draft, workoutId: 1, revision: 2, startedAt: 1 };
   assert.equal(isLocalWorkoutSnapshot(local), true);
@@ -34,8 +34,8 @@ test("offline recovery preserves unsynced edits, detects conflicts and rejects c
   assert.equal(recoverySource({ ...server, revision: 3 }, local), "conflict");
   assert.equal(recoverySource({ ...server, exercises: [] }, local), "conflict");
   assert.equal(recoverySource(server, { ...local, syncedSignature: draftSignature(draft) }), "server");
-  assert.equal(recoverySource(null, local), "none");
-  assert.equal(recoverySource(server, { ...local, workoutId: 99 }), "server");
+  assert.equal(recoverySource(null, local), "conflict");
+  assert.equal(recoverySource(server, { ...local, workoutId: 99 }), "conflict");
 });
 
 test("presets reject malformed configurations before database writes", async () => {

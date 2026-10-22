@@ -171,7 +171,7 @@ export default function HomeScreen() {
           <Pressable onPress={() => setDialog("reload")}><Text style={styles.quickAddText}>Reload server workout</Text></Pressable>
           {!!error && <Text accessibilityRole="alert" style={styles.deleteText}>{error}</Text>}
           <TextInput accessibilityLabel="Workout notes" multiline maxLength={5000} placeholder="Workout notes" placeholderTextColor={Colors.textMuted} value={notes} onChangeText={setNotes} style={[styles.input, { minHeight: 60, textAlign: "left", marginVertical: 12 }]} />
-          <Pressable onPress={() => void savePreset().then(() => setError("Preset saved in Templates")).catch((cause) => setError(cause.message))}><Text style={styles.quickAddText}>Save as reusable preset</Text></Pressable>
+          <Pressable onPress={() => void savePreset().then((saved) => { if (saved) setError("Preset saved in Templates"); }).catch((cause) => setError(cause.message))}><Text style={styles.quickAddText}>Save as reusable preset</Text></Pressable>
           {exercises.map((exercise) => {
             const isSelected =
               selectedExerciseId === exercise.id;

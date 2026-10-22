@@ -8,6 +8,7 @@
     "scheme": "vytor",
     "userInterfaceStyle": "automatic",
     "android": {
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

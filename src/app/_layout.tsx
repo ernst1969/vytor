@@ -13,7 +13,8 @@ import { ActivityIndicator, View } from "react-native";
 import { AppDialogProvider } from "@/context/dialog-context";
 import { AppThemeProvider, useAppTheme } from "@/context/theme-context";
 import { WorkoutProvider } from "@/context/workout-context";
-import { getUser } from "@/services/api";
+import { clearLocalSessionIfCurrent, clearLocalSessionIfUserCurrent, getCurrentSession } from "@/services/api";
+import { checkStartupSession } from "@/services/session-startup";
 
 function AppNavigator() {
   const { dark, colors } = useAppTheme();
@@ -25,32 +26,14 @@ function AppNavigator() {
   useEffect(() => {
     async function checkUser() {
       try {
-        const storedUserId = await AsyncStorage.getItem("vytor_user_id");
-
-        if (!storedUserId) {
-          router.replace("/create-user");
-          return;
-        }
-
-        const userId = Number(storedUserId);
-
-        if (!Number.isInteger(userId)) {
-          await AsyncStorage.removeItem("vytor_user_id");
-          router.replace("/create-user");
-          return;
-        }
-
-        try {
-          await getUser(userId);
-        } catch (error) {
-          const status = (error as { status?: number }).status;
-
-          if (status === 401 || status === 404) {
-            await AsyncStorage.multiRemove(["vytor_user_id", "vytor_session_token"]);
-            router.replace("/login");
-            return;
-          }
-        }
+        const result = await checkStartupSession({
+          readUserId: () => AsyncStorage.getItem("vytor_user_id"),
+          getSession: getCurrentSession,
+          clearIfUserCurrent: clearLocalSessionIfUserCurrent,
+          clearIfTokenCurrent: clearLocalSessionIfCurrent,
+        });
+        if (result === "create-user") router.replace("/create-user");
+        if (result === "login") router.replace("/login");
       } finally {
         setCheckingUser(false);
       }

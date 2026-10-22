@@ -1,6 +1,6 @@
 # Vytor
 
-Mobile Trainings-App für iOS und Android mit Web-Ziel. Stand: 16. Oktober 2026. Arbeitsregeln: [AGENTS.md](AGENTS.md), Aufgaben: [TODO.md](TODO.md), Änderungen: [CHANGELOG.md](CHANGELOG.md).
+Mobile Trainings-App für iOS und Android mit Web-Ziel. Stand: 22. Oktober 2026. Arbeitsregeln: [AGENTS.md](AGENTS.md), Aufgaben: [TODO.md](TODO.md), Änderungen: [CHANGELOG.md](CHANGELOG.md).
 
 ## Funktionen
 
@@ -77,13 +77,17 @@ npm start
 
 Ein partieller PostgreSQL-Unique-Index erlaubt nur ein aktives, nicht pausiertes Workout je Konto. Home setzt nach Login ein vorhandenes Server-Workout fort; konkurrierende Starts erhalten HTTP 409. Übungen können hinzugefügt, entfernt, atomar ersetzt und umgeordnet werden.
 
-Sätze, Notizen, Einheiten, Form-Cues und das absolute Timer-Ende werden lokal pro Konto gespeichert. Lokale Schreibvorgänge sind serialisiert; beim Hintergrundwechsel und vor einem Draft-Wechsel wird ein Flush versucht. Änderungen werden nach 800 ms als versionierter Entwurf synchronisiert; fehlgeschlagene Übertragungen werden alle 15 Sekunden erneut versucht. Ein Timeout beendet hängende Requests nach 15 Sekunden.
+Sätze, Notizen, Einheiten, Form-Cues und das absolute Timer-Ende werden lokal pro Konto gespeichert. Lokale Schreibvorgänge sind serialisiert. Background-, Finish-, Struktur- und Workout-Wechsel teilen eine abwartbare Sync-Promise: Ein Wechsel wird erst fortgesetzt, wenn der laufende Save und alle währenddessen entstandenen neueren Änderungen bestätigt sind. Änderungen werden nach 800 ms als versionierter Entwurf synchronisiert; fehlgeschlagene Übertragungen werden alle 15 Sekunden erneut versucht. Ein Timeout beendet hängende Requests nach 15 Sekunden.
 
-Der Server akzeptiert nur die erwartete Entwurfsversion und die aktuelle Übungsliste. Bei konkurrierenden Änderungen bleiben lokale Daten erhalten und die App zeigt einen Konflikt. „Reload server workout“ ersetzt lokale Änderungen nach ausdrücklicher Bestätigung. Bereits bestätigte lokale Daten werden beim Neustart durch den aktuellen Serverstand ersetzt; ungesendete Daten mit passender Basisversion werden weiter synchronisiert.
+Der Server akzeptiert nur die erwartete Entwurfsversion und die aktuelle Übungsliste. Save-Ergebnisse sind an Account, Workout-ID und Generation gebunden; verspätete Antworten dürfen weder Revision noch Status eines anderen Workouts ändern. Bei Netzwerkfehler oder 409 bleibt der lokale Snapshot erhalten, der Flush schlägt sichtbar fehl und ein Workout-Wechsel wird nicht als erfolgreich behandelt. „Reload server workout“ ersetzt lokale Änderungen erst nach ausdrücklicher Bestätigung.
 
-Bei schlechter Verbindung können Sätze eines bereits gestarteten Workouts lokal weiter bearbeitet werden. Trainingsstart, strukturelle Übungsänderungen, Abschluss und Verwerfen benötigen eine Verbindung; dafür gibt es keine vollständige Offline-Warteschlange. Andere Geräte sehen den zuletzt bestätigten Serverentwurf. Alle strukturellen Änderungen prüfen und erhöhen atomar die Revision. Drop-Sets besitzen nach Abschluss eine Datenbankreferenz auf ihren Ursprungssatz. Passwortänderung beendet alle Sessions; Logout entfernt den Entwurf dieses Geräts und beendet dessen Session.
+Bei schlechter Verbindung können Sätze eines bereits gestarteten Workouts lokal weiter bearbeitet werden. Trainingsstart, strukturelle Übungsänderungen, Abschluss und Verwerfen benötigen eine Verbindung; dafür gibt es keine vollständige Offline-Warteschlange. Andere Geräte sehen den zuletzt bestätigten Serverentwurf. Alle strukturellen Änderungen prüfen und erhöhen atomar die Revision. Drop-Sets besitzen nach Abschluss eine Datenbankreferenz auf ihren Ursprungssatz. Passwortänderung beendet alle Sessions. Logout entfernt Credentials und sichtbaren State, bewahrt aber einen lokal bestätigten, noch nicht serverbestätigten accountgebundenen Draft. Nur bestätigter Server-Save, Workout-Abschluss, bewusstes Verwerfen oder bestätigte Account-Löschung bereinigen ihn.
 
-Native Bearer-Tokens liegen in `expo-secure-store` (Android Keystore/iOS Keychain). Ein vorhandenes korrekt formatiertes Legacy-Token wird verifiziert in SecureStore geschrieben und erst danach aus AsyncStorage entfernt; Speichervorgänge, Migration und Logout sind serialisiert. Web verwendet absichtlich nur tabgebundenes `sessionStorage`: ein Reload innerhalb des Tabs bleibt angemeldet, ein geschlossener Tab nicht. Ein HttpOnly-Cookie-Flow ist nicht implementiert.
+Native Bearer-Tokens liegen in `expo-secure-store` (Android Keystore/iOS Keychain). Ein Legacy-Token wird über `GET /api/session` dem gespeicherten Konto zugeordnet, anschließend in SecureStore geschrieben, zurückgelesen und erst dann aus AsyncStorage entfernt; offline wird die Migration verlustfrei aufgeschoben. Migration, Login, Logout und bedingte 401-Löschung verwenden dieselbe Queue. Logout bindet sein Cleanup an das vollständige Startpaar aus Account-ID und Token; auch ein tokenloser alter Logout kann daher weder eine neue B- noch eine neue A-Session löschen. Ein verspäteter 401 für Token A kann ebenfalls einen neu gespeicherten Token B nicht löschen. Web verwendet absichtlich nur tabgebundenes `sessionStorage`.
+
+Mutierende Preset-Requests erfassen Account, Token, Session-Generation und Workout-Payload vor dem ersten Await. Vor dem Versand wird die Sessionbindung geprüft; ein laufender A-Request behält A als Authorization-Identität, und ein spätes Ergebnis zeigt unter B keine Erfolgs- oder Fehlermeldung. Account-Lösch-Tombstones arbeiten fail-closed: Ein unbekannter oder beschädigter Marker blockiert lokale Writes, statt als „nicht gelöscht“ zu gelten, und kann nach einem späteren erfolgreichen Lesen kontrolliert weiterarbeiten.
+
+Destruktive Settings-Aktionen werden an das Account-/Token-Snapshot gebunden, zu dem der sichtbare Bestätigungsdialog gehört. Logout, Passwortänderung und Account-Löschung werden vor Versand nochmals gegen diese Identität geprüft. Ein bereits unter A abgesendeter Delete darf nach einem Wechsel zu B nur A bereinigen; B bleibt angemeldet und wird nicht zum Login umgeleitet. Eine synchrone In-Flight-Sperre verhindert doppelte Delete-Requests durch mehrfaches Bestätigen.
 
 Gewichte werden als kg, Distanzen als km und Zeiten als Sekunden gespeichert. Anzeige und Einheitenwechsel rechnen um. Abschluss, Satzdaten und XP sind transaktional; 100 Basis-XP plus 10 XP pro abgeschlossenem Nicht-Warm-up-Satz werden einmalig vergeben. 1RM nutzt die Epley-Schätzung und ist entsprechend gekennzeichnet.
 
@@ -102,7 +106,7 @@ SELECT "id", "userId", "message", "createdAt"
 FROM "Feedback" ORDER BY "createdAt" DESC;
 ```
 
-Kontolöschung entfernt Workouts, Vorlagen, Sessions, XP-Ereignisse, persönliche Einstellungen, Feedback und Freundschaften. Eigene Übungen werden archiviert; vorhandene Referenzen und ihre historischen Messarten bleiben erhalten.
+Kontolöschung entfernt Workouts, Vorlagen, Sessions, XP-Ereignisse, persönliche Einstellungen, Feedback, Freundschaften und nach bestätigter Serverantwort den lokalen Draft dieses Kontos. Eigene Übungen werden archiviert; vorhandene Referenzen und ihre historischen Messarten bleiben erhalten.
 
 ## Prüfungen
 
@@ -124,11 +128,11 @@ npm run test:integration
 npx prisma validate
 ```
 
-Alle zwölf Migrationen wurden auf einem frischen temporären PostgreSQL-18.6-Cluster als dedizierte Migrationsrolle angewendet. Ein Custom-Format-Dump wurde in eine zweite Datenbank restauriert; Datenprobe, Sequenzen, Migrationstabelle und Runtime-Rechte wurden geprüft. Dies bestätigt nicht den noch extern zu testenden Restic-Transport.
+Alle zwölf Migrationen wurden auf einem frischen temporären PostgreSQL-18.6-Cluster als dedizierte Migrationsrolle angewendet. Zusätzlich wurde ein Custom-Dump mit nur zehn Migrationen als Administrator in eine neue Datenbank restauriert. Das Rollenskript übertrug ausschließlich administrator-eigene App-Objekte im `public`-Schema an `vytor_migrator`; dieser führte die zwei ausstehenden Migrationen und DDL auf einer Bestandstabelle aus. Daten, Foreign Keys, Sequenzen, `_prisma_migrations`, API-DML und verweigerte API-DDL wurden geprüft. Dies bestätigt nicht den externen Restic-Transport.
 
 Der Integrationstest benötigt eine erreichbare `DATABASE_URL` sowie Rechte zum Erstellen/Löschen eines Schemas. Er legt ein eindeutig benanntes Testschema an, spielt sämtliche Migrationen und den Seed ein, startet einen separaten API-Prozess und prüft echte HTTP-Aufrufe. Danach entfernt er ausschließlich das Testschema. `DATABASE_SCHEMA` steuert dabei das Prisma-Adapter-Schema; im normalen Betrieb ist es `public`.
 
-Abgedeckt sind Authentifizierung, Profile/Bilder, Freundschaftsberechtigungen, Vorlagen, Gerätewechsel, Versionskonflikte, parallele Starts, Übungsersatz/-löschung, Warm-up-/Drop-Sätze, Einheiten, XP, Historie, Settings, Feedback und Account-Bereinigung. Unit-Tests prüfen außerdem Dauer, XP-Ränge, Muskelzuordnung und Offline-Konfliktentscheidungen.
+Abgedeckt sind Authentifizierung, Profile/Bilder, Freundschaftsberechtigungen, Vorlagen, Gerätewechsel, Versionskonflikte, parallele Starts, Settings-/Finish-/Suspend-Races, strikt typisierte Revisionen, Übungsersatz/-löschung, Warm-up-/Drop-Sätze, Einheiten, XP, Historie, Feedback und Account-Bereinigung. Die 90 Clienttests mounten zusätzlich echte Settings- und `WorkoutProvider`-Pfade und prüfen Offline-Draft, Logout, Accountwechsel, destruktive Account-Aktionen, Save-Preset vor/während Sessionwechsel, tokenlosen Logout, fail-closed Tombstones, Cache-Cleanup, Finish/Discard, Startup-Navigation, verspätete 401/404, SecureStore-Migration und vollständig typisierte Recovery-Snapshots.
 
 Ein erfolgreicher Plattformexport ersetzt keine Interaktionsprüfung auf Geräten. Die noch ausstehende manuelle Matrix steht in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 
@@ -176,7 +180,7 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/vytor-ui-browsers node /tmp/vytor-ui-verification/
 PLAYWRIGHT_BROWSERS_PATH=/tmp/vytor-ui-browsers PLAYWRIGHT_MODULE=/tmp/vytor-ui-verification/node_modules/playwright/index.mjs node scripts/workout-layout.browser.mjs
 ```
 
-Der Browserlauf prüft 320, 344 (Referenzbreite), 360, 390, 768 und 1.440 Pixel, ausgerichtete Spalten, Einheiten, Overflow, Eingaben, Satzaktionen, Entwurfsspeicherung, Abschluss/Verwerfen, Footer, Muskelkarte, alle vier Tabs, stabile Home-Sprüche, echte Progress-Darstellung aus API-Antworten, Start-/Detailnavigation, Leaderboard-Gleichstände, lange Namen sowie Hell-/Dunkel-Auswahl und den Streak-Verfall am lokalen Tageswechsel ohne Polling. Screenshots liegen unter `/tmp/vytor-layout-screenshots`. Native Tastatur-/Safe-Area-Prüfungen benötigen weiterhin reale iOS-/Android-Geräte. Der vorherige TODO-Audit hat außerdem noch offene Synchronisations- und Drop-Set-Randfälle festgestellt; diese Layoutänderung ändert keine Backend- oder Persistenzverträge.
+Der Browserlauf prüft 320, 344 (Referenzbreite), 360, 390, 768 und 1.440 Pixel, ausgerichtete Spalten, Einheiten, Overflow, Eingaben, Satzaktionen, Entwurfsspeicherung, Abschluss/Verwerfen, Footer, Muskelkarte, alle vier Tabs, stabile Home-Sprüche, echte Progress-Darstellung aus API-Antworten, Start-/Detailnavigation, Leaderboard-Gleichstände, lange Namen sowie Hell-/Dunkel-Auswahl und den Streak-Verfall am lokalen Tageswechsel ohne Polling. Screenshots liegen unter `/tmp/vytor-layout-screenshots`. Native Tastatur-/Safe-Area-Prüfungen benötigen weiterhin reale iOS-/Android-Geräte.
 
 Die Settings öffnen Eingaben über einzelne Buttons; der Standard-Pausentimer wird in getrennten Minuten-/Sekundenfeldern eingestellt.
 
@@ -185,7 +189,8 @@ Die Streak wird ausschließlich aus der vorhandenen Workout-Historie berechnet. 
 ## Späteres Hetzner-Hosting
 
 Die ausschließlich vorbereitete Docker-/HTTPS-/Backup-Konfiguration und alle manuellen
-Umzugsschritte stehen in [docs/HETZNER_DEPLOYMENT.md](docs/HETZNER_DEPLOYMENT.md).
-Vor Internetfreigabe die offenen Befunde in
-[docs/HETZNER_SECURITY_REVIEW.md](docs/HETZNER_SECURITY_REVIEW.md) bearbeiten.
+Umzugsschritte stehen im maßgeblichen [Deployment-Runbook](docs/DEPLOYMENT_RUNBOOK.md).
+Der aktuelle Gate-Status steht in [Deployment Readiness](docs/DEPLOYMENT_READINESS.md),
+den eingefrorenen Code-Stand in [Code Freeze Handoff](docs/CODE_FREEZE_HANDOFF.md).
+`HETZNER_DEPLOYMENT.md` enthält Vertiefungen und `HETZNER_SECURITY_REVIEW.md` historische Befunde.
 Der lokale Entwicklungsworkflow verwendet weiterhin die bestehenden `.env`-Dateien.
